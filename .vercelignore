@@ -1,0 +1,12 @@
+.env*
+.git/
+.vercel/
+.next/
+.npm-cache/
+node_modules/
+*.tsbuildinfo
+*.log
+tests/
+supabase/
+docs/
+scripts/

@@ -18,10 +18,26 @@ import {
 } from "lucide-react";
 import { services, money } from "@/modules/services/catalog";
 import { BusinessForm } from "@/modules/business/form";
+import { getSupabaseCatalog } from "@/integrations/supabase/catalog";
 
 const icons = [Stethoscope, Wind, Activity, Droplets, Heart, BookOpen];
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const catalog = await getSupabaseCatalog();
+  const listedServices =
+    catalog.status === "ready"
+      ? catalog.services.map((service) => ({
+          id: service.code,
+          name: service.name,
+          description: service.description,
+          minutes: service.durationMinutes,
+          cents: service.amountCents,
+        }))
+      : catalog.status === "not_configured"
+        ? services
+        : [];
   return (
     <div className="home-page">
       <div className="page-heading">
@@ -105,16 +121,21 @@ export default function Home() {
             <p className="eyebrow">CUIDADO A TU MEDIDA</p>
             <h2>¿Cómo podemos ayudarte?</h2>
           </div>
-          <span>Precios orientativos · USD</span>
+          <span>
+            {catalog.status === "ready"
+              ? "Servicios disponibles · USD"
+              : "Precios orientativos · USD"}
+          </span>
         </div>
         <div className="service-grid">
-          {services.map((service, index) => {
-            const Icon = icons[index];
+          {listedServices.map((service, index) => {
+            const iconIndex = services.findIndex((item) => item.id === service.id);
+            const Icon = icons[iconIndex] ?? Stethoscope;
             return (
               <Link
                 className="service-card"
                 key={service.id}
-                href={`/solicitar?servicio=${service.id}`}
+                href={`/solicitar?servicio=${encodeURIComponent(service.id)}`}
               >
                 <div className="service-top">
                   <span className={`service-icon tone-${index}`}>
@@ -126,7 +147,13 @@ export default function Home() {
                 <p>{service.description}</p>
                 <div className="service-bottom">
                   <span>
-                    Desde <strong>{money(service.cents)}</strong>
+                    {service.cents === null ? (
+                      "Precio por confirmar"
+                    ) : (
+                      <>
+                        Desde <strong>{money(service.cents)}</strong>
+                      </>
+                    )}
                   </span>
                   <span>
                     <Clock3 size={13} /> {service.minutes} min
@@ -136,6 +163,13 @@ export default function Home() {
             );
           })}
         </div>
+        {listedServices.length === 0 && (
+          <p className="notice" role="status">
+            {catalog.status === "ready"
+              ? "El catálogo de servicios se está preparando."
+              : "No pudimos cargar los servicios. Intenta nuevamente más tarde."}
+          </p>
+        )}
         <p className="fine-print">
           El servicio se define tras revisión profesional. Traslado según zona.
         </p>

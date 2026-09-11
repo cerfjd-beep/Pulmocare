@@ -1,6 +1,7 @@
 # Instrucciones de construcción de la base de datos
 
-Estado: especificación para implementar. No se han creado ni desplegado tablas.
+Estado: especificación con implementación inicial en [supabase/](../../supabase/README.md).
+Migraciones preparadas para validación e instalación; aplicación remota pendiente.
 Fecha: 7 de septiembre de 2026. Proyecto: Pulmocare.
 
 ## Objetivo y alcance

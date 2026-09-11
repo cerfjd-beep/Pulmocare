@@ -6,3 +6,8 @@ out/
 !.env.example
 *.log
 .npm-cache/
+supabase/.temp/
+supabase/.branches/
+.vercel/
+
+.vercel

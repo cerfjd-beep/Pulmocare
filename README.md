@@ -28,6 +28,10 @@ y se eliminan al recargar. No se envían archivos, mensajes ni pagos.
 Las vistas del paciente y equipo son demostrativas y no tienen autenticación.
 No introducir datos de pacientes reales.
 
+El catálogo de inicio puede leerse desde Supabase con las variables públicas de `.env.example`.
+Las solicitudes y los paneles siguen en modo demostración. Ver
+[conexión e instalación de Supabase](supabase/README.md) para crear las tablas y configurar Vercel.
+
 ## Validación
 
 ```powershell
@@ -54,6 +58,7 @@ La instalación PWA y el comportamiento sin conexión se implementarán en una e
 - [Comparación de despliegue pagado y costos](docs/despliegue.md)
 - [Modelo de datos y estados](docs/datos-y-estados.md)
 - [Instrucciones de construcción de la base de datos](docs/base-de-datos/README.md)
+- [Migraciones e instalación en Supabase](supabase/README.md)
 - [Plan de implementación](docs/plan.md)
 
 TypeScript estricto, módulos por área y formato de 100 caracteres como objetivo.

@@ -1,0 +1,3 @@
+-- The six demo services and draft tariffs are versioned in migration 20260911000025.
+-- No users, patient records, administrative roles or approved protocols are seeded.
+-- Integration-test identities live only in tests/database and never in remote seeds.
