@@ -1,0 +1,90 @@
+@media (max-width: 1100px) {
+  .intake-layout {
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 20px;
+  }
+  .form-card {
+    padding: 23px;
+  }
+}
+@media (max-width: 760px) {
+  .intake-layout {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  .journey {
+    padding: 0;
+  }
+  .journey > .eyebrow,
+  .journey h2,
+  .journey-note {
+    display: none;
+  }
+  .journey ol {
+    display: flex;
+    gap: 10px;
+    margin: 5px 0 10px;
+    justify-content: space-between;
+  }
+  .journey li {
+    flex-direction: column;
+    gap: 6px;
+    font-size: 9px;
+    text-align: center;
+    padding: 0;
+  }
+  .form-card {
+    padding: 22px 18px;
+  }
+  .choice-grid,
+  .slot-grid,
+  .two-fields {
+    grid-template-columns: 1fr;
+  }
+  .form-actions {
+    flex-wrap: wrap;
+  }
+  .form-actions > .button {
+    flex: 1;
+    white-space: nowrap;
+  }
+  .stats-grid {
+    gap: 8px;
+  }
+  .stat-card {
+    padding: 14px 10px;
+  }
+  .stat-card strong {
+    font-size: 25px;
+  }
+  .stat-card svg {
+    width: 16px;
+  }
+  .stat-card span {
+    font-size: 10px;
+    grid-column: 1 / -1;
+  }
+  .filter-row {
+    flex-direction: column;
+  }
+  .filter-row > select {
+    max-width: none;
+    width: 100%;
+  }
+  .request-heading {
+    flex-direction: column;
+    gap: 5px;
+  }
+  .request-item {
+    padding: 16px;
+  }
+  .success-card {
+    padding: 30px 20px;
+  }
+  .appointment-info {
+    align-items: start;
+  }
+  .appointment-info > strong {
+    font-size: 13px;
+  }
+}

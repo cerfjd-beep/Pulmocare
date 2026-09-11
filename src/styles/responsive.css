@@ -1,0 +1,150 @@
+@media (min-width: 1500px) {
+  .home-page,
+  .inner-page {
+    padding-top: 45px;
+  }
+}
+@media (max-width: 1100px) {
+  .sidebar {
+    width: 210px;
+    padding: 28px 15px 20px;
+  }
+  .workspace {
+    margin-left: 210px;
+  }
+  .home-page,
+  .inner-page {
+    padding: 28px;
+  }
+  .topbar {
+    padding: 0 28px;
+  }
+  .hero-copy {
+    padding-left: 28px;
+  }
+  .hero-art {
+    overflow: hidden;
+  }
+  .lung-art {
+    width: 235px;
+  }
+  .art-tag {
+    left: 0;
+    padding: 10px;
+  }
+  .service-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .location-pill {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .sidebar {
+    position: static;
+    width: auto;
+    padding: 18px 20px 9px;
+    border-right: 0;
+  }
+
+  .sidebar nav {
+    display: flex;
+    gap: 5px;
+    overflow-x: auto;
+    margin-top: 16px;
+  }
+  .nav-item {
+    white-space: nowrap;
+    font-size: 11px;
+    padding: 9px 11px;
+    gap: 6px;
+  }
+  .nav-item svg {
+    width: 15px;
+  }
+  .nav-caption,
+  .sidebar-note,
+  .sidebar-footer {
+    display: none;
+  }
+  .workspace {
+    margin-left: 0;
+  }
+  .topbar {
+    height: 44px;
+    padding: 0 20px;
+  }
+  .avatar,
+  .topbar .demo-badge {
+    display: none;
+  }
+  .home-page,
+  .inner-page {
+    padding: 25px 20px;
+  }
+  .hero {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+  .hero-copy {
+    padding: 30px 26px;
+  }
+  .hero h2 {
+    font-size: 34px;
+  }
+  .hero-art {
+    display: none;
+  }
+  .trust-strip {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px 0;
+    padding: 20px 0;
+  }
+  .trust-strip span:nth-child(2) {
+    border: 0;
+  }
+  .section-heading {
+    align-items: start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .service-card {
+    padding: 17px;
+  }
+  .service-card h3 {
+    min-height: 37px;
+  }
+  .service-card p {
+    min-height: 55px;
+  }
+  .service-bottom {
+    align-items: start;
+    flex-direction: column;
+  }
+  .steps-section {
+    padding: 24px 20px;
+  }
+  .steps-grid,
+  .bottom-grid {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+  .steps-section > div:first-child {
+    text-align: left;
+  }
+  .page-footer {
+    flex-direction: column;
+    padding: 15px 20px 25px;
+    gap: 5px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+  }
+}

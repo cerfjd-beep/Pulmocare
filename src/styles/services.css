@@ -1,0 +1,123 @@
+.trust-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 23px 6px;
+  margin-bottom: 25px;
+  border-bottom: 1px solid var(--line);
+}
+.trust-strip span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-size: 11px;
+  color: var(--muted);
+  border-right: 1px solid var(--line);
+}
+.trust-strip span:last-child {
+  border: 0;
+}
+.trust-strip svg {
+  width: 18px;
+  color: var(--teal);
+  stroke-width: 1.5;
+}
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 22px;
+}
+.section-heading h2 {
+  margin-bottom: 0;
+}
+.section-heading > span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.service-card {
+  background: white;
+  border: 1px solid var(--line);
+  padding: 22px;
+  border-radius: 12px;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.service-card:hover {
+  border-color: var(--teal);
+  box-shadow: 0 6px 20px #193d3512;
+}
+.service-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+.service-top > svg {
+  color: var(--teal);
+  width: 15px;
+}
+.service-icon {
+  display: grid;
+  place-items: center;
+  background: #e3f1e8;
+  color: #216c51;
+  width: 43px;
+  height: 43px;
+  border-radius: 12px;
+}
+.service-icon svg {
+  width: 22px;
+  stroke-width: 1.5;
+}
+.tone-1,
+.tone-4 {
+  background: #e6f0fa;
+  color: #326284;
+}
+.tone-2,
+.tone-5 {
+  background: #fbf1db;
+  color: #806019;
+}
+.service-card h3 {
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+.service-card p {
+  font-size: 11px;
+  line-height: 1.7;
+  min-height: 38px;
+}
+.service-bottom {
+  border-top: 1px solid var(--line);
+  padding-top: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.service-bottom strong {
+  font-size: 16px;
+  color: var(--dark);
+  margin-left: 3px;
+}
+.service-bottom > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.fine-print {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 14px 0 0;
+}

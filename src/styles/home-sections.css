@@ -1,0 +1,130 @@
+.steps-section {
+  margin: 36px 0;
+  padding: 30px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.steps-section > div:first-child {
+  text-align: center;
+}
+.steps-section > div:first-child > p:last-child {
+  font-size: 12px;
+}
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 25px;
+  margin-top: 28px;
+}
+.steps-grid > div {
+  position: relative;
+  padding-left: 44px;
+}
+.steps-grid > div > span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--teal);
+  font-size: 22px;
+  font-weight: 300;
+}
+.steps-grid h3 {
+  font-size: 13px;
+  margin-bottom: 7px;
+}
+.steps-grid p {
+  font-size: 11px;
+  margin-bottom: 0;
+}
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 22px;
+}
+.about-card,
+.business-card {
+  border-radius: 12px;
+  padding: 28px;
+  border: 1px solid var(--line);
+}
+.about-card {
+  background: white;
+}
+.about-card h2,
+.business-card h2 {
+  font-size: 22px;
+  margin-top: 14px;
+}
+.about-card p,
+.business-card p {
+  font-size: 12px;
+}
+.profile-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin-top: 23px;
+}
+.profile-avatar {
+  border-radius: 50%;
+  background: #e9eee5;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  font-size: 12px;
+}
+.profile-line strong {
+  display: block;
+  font-size: 11px;
+}
+.profile-line small {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+}
+.profile-line > svg {
+  margin-left: auto;
+  color: #347653;
+}
+.business-card {
+  background: #edf4e5;
+}
+.business-card > svg {
+  float: right;
+  color: #347653;
+}
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 600;
+}
+.page-footer {
+  max-width: 1340px;
+  margin: auto;
+  padding: 22px 44px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  font-size: 10px;
+}
+.skip-link {
+  position: fixed;
+  left: 15px;
+  top: -100px;
+  z-index: 100;
+  background: white;
+  padding: 12px;
+}
+.skip-link:focus {
+  top: 12px;
+}

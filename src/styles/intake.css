@@ -1,0 +1,170 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.stack > p {
+  margin-bottom: 0;
+}
+.intake-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 35px;
+  align-items: start;
+}
+.journey {
+  padding: 22px 0;
+}
+.journey h2 {
+  font-size: 25px;
+  line-height: 1.4;
+}
+.journey ol {
+  list-style: none;
+  padding: 0;
+  margin: 30px 0;
+}
+.journey li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 24px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.journey li > span {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--control-border);
+  display: grid;
+  place-items: center;
+  background: white;
+  font-size: 11px;
+}
+.journey li.current {
+  color: var(--teal);
+  font-weight: 650;
+}
+.journey li.current > span {
+  background: var(--teal);
+  color: white;
+  border-color: var(--teal);
+}
+.journey-note {
+  border-top: 1px solid var(--line);
+  padding-top: 25px;
+}
+.journey-note svg {
+  color: var(--teal);
+  margin-bottom: 10px;
+}
+.journey-note strong {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.journey-note p {
+  font-size: 11px;
+}
+.form-card {
+  padding: 30px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  min-width: 0;
+}
+.form-card h2 {
+  font-size: 24px;
+}
+.form-card p {
+  font-size: 13px;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: #fdfefc;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+}
+input::placeholder,
+textarea::placeholder {
+  color: #5c7067;
+}
+textarea {
+  min-height: 85px;
+  resize: vertical;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--teal);
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+fieldset {
+  padding: 0;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+legend {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.field-help {
+  font-size: 11px !important;
+  margin-bottom: 12px;
+}
+.choice-grid,
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.check-card {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.check-card:has(input:checked) {
+  border-color: var(--teal);
+  background: #e6f3ea;
+}
+.upload-zone {
+  padding: 22px;
+  border: 1px dashed var(--control-border);
+  border-radius: 10px;
+  background: #f8fbf7;
+}
+.upload-zone small {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11px;
+}
+.two-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+}
