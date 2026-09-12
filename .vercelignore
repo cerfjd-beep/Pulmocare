@@ -6,7 +6,7 @@
 node_modules/
 *.tsbuildinfo
 *.log
-tests/
-supabase/
-docs/
-scripts/
+/tests/
+/supabase/
+/docs/
+/scripts/
