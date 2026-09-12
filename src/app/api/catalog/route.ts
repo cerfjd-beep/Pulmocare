@@ -1,4 +1,4 @@
-import { getSupabaseCatalog } from "@/integrations/supabase/catalog";
+import { getSupabaseCatalog } from "../../../integrations/supabase/catalog";
 
 export const dynamic = "force-dynamic";
 

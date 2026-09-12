@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { services, money } from "@/modules/services/catalog";
 import { BusinessForm } from "@/modules/business/form";
-import { getSupabaseCatalog } from "@/integrations/supabase/catalog";
+import { getSupabaseCatalog } from "../integrations/supabase/catalog";
 
 const icons = [Stethoscope, Wind, Activity, Droplets, Heart, BookOpen];
 
