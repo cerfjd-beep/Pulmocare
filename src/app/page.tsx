@@ -29,12 +29,12 @@ export default async function Home() {
   const listedServices =
     catalog.status === "ready"
       ? catalog.services.map((service) => ({
-          id: service.code,
-          name: service.name,
-          description: service.description,
-          minutes: service.durationMinutes,
-          cents: service.amountCents,
-        }))
+        id: service.code,
+        name: service.name,
+        description: service.description,
+        minutes: service.durationMinutes,
+        cents: service.amountCents,
+      }))
       : catalog.status === "not_configured"
         ? services
         : [];
