@@ -15,9 +15,25 @@ function Feedback({ state }: { state: FormState }) {
 }
 export function AuthForm() {
   const [signup, setSignup] = useState(false);
+  const [validationError, setValidationError] = useState("");
   const [state, action, pending] = useActionState(authenticate, {});
   return (
-    <form action={action} className="account-form">
+    <form
+      action={action}
+      className="account-form"
+      onInvalid={(event) => {
+        const input = event.target as HTMLInputElement;
+        const label =
+          input.name === "email"
+            ? "Correo electrónico"
+            : input.name === "confirmation"
+              ? "Repite la contraseña"
+              : "Contraseña";
+        setValidationError(`${label}: ${input.validationMessage}`);
+      }}
+      onInput={() => setValidationError("")}
+      onSubmit={() => setValidationError("")}
+    >
       <h2>{signup ? "Crea tu cuenta" : "Inicia sesión"}</h2>
       <p>Acceso para pacientes, prestadores y administradores.</p>
       <input type="hidden" name="mode" value={signup ? "signup" : "login"} />
@@ -34,8 +50,14 @@ export function AuthForm() {
           required
           minLength={signup ? 10 : 1}
           maxLength={128}
+          aria-describedby={signup ? "password-requirements" : undefined}
         />
       </label>
+      {signup && (
+        <small id="password-requirements">
+          Usa al menos 10 caracteres. Debes escribir la misma contraseña en ambos campos.
+        </small>
+      )}
       {signup && (
         <label>
           Repite la contraseña
@@ -49,15 +71,21 @@ export function AuthForm() {
           />
         </label>
       )}
-      <Feedback state={state} />
-      <button className="button primary" disabled={pending}>
+      <Feedback state={validationError ? { error: validationError } : state} />
+      <p role="status" aria-live="polite">
+        {pending ? "Enviando la solicitud. Espera a que aparezca el resultado." : ""}
+      </p>
+      <button type="submit" className="button primary" disabled={pending}>
         {pending ? "Un momento…" : signup ? "Crear cuenta" : "Ingresar"}
       </button>
       <button
         type="button"
         className="text-button"
         disabled={pending}
-        onClick={() => setSignup(!signup)}
+        onClick={() => {
+          setValidationError("");
+          setSignup(!signup);
+        }}
       >
         {signup ? "Ya tengo cuenta: iniciar sesión" : "No tengo cuenta: registrarme"}
       </button>
