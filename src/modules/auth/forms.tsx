@@ -1,6 +1,6 @@
 "use client";
 import { useActionState, useState } from "react";
-import { authenticate, onboard, reviewProvider, type FormState } from "./actions";
+import { onboard, reviewProvider, type FormState } from "./actions";
 function Feedback({ state }: { state: FormState }) {
   return (
     <div aria-live="polite">
@@ -13,13 +13,14 @@ function Feedback({ state }: { state: FormState }) {
     </div>
   );
 }
-export function AuthForm() {
-  const [signup, setSignup] = useState(false);
+export function AuthForm({ signup = false, state = {} }: { signup?: boolean; state?: FormState }) {
   const [validationError, setValidationError] = useState("");
-  const [state, action, pending] = useActionState(authenticate, {});
+  const [pending, setPending] = useState(false);
   return (
     <form
-      action={action}
+      action="/auth/session"
+      method="post"
+      noValidate
       className="account-form"
       onInvalid={(event) => {
         const input = event.target as HTMLInputElement;
@@ -32,7 +33,10 @@ export function AuthForm() {
         setValidationError(`${label}: ${input.validationMessage}`);
       }}
       onInput={() => setValidationError("")}
-      onSubmit={() => setValidationError("")}
+      onSubmit={() => {
+        setValidationError("");
+        setPending(true);
+      }}
     >
       <h2>{signup ? "Crea tu cuenta" : "Inicia sesión"}</h2>
       <p>Acceso para pacientes, prestadores y administradores.</p>
@@ -78,17 +82,9 @@ export function AuthForm() {
       <button type="submit" className="button primary" disabled={pending}>
         {pending ? "Un momento…" : signup ? "Crear cuenta" : "Ingresar"}
       </button>
-      <button
-        type="button"
-        className="text-button"
-        disabled={pending}
-        onClick={() => {
-          setValidationError("");
-          setSignup(!signup);
-        }}
-      >
+      <a href={signup ? "/ingresar" : "/ingresar?mode=signup"} className="text-button">
         {signup ? "Ya tengo cuenta: iniciar sesión" : "No tengo cuenta: registrarme"}
-      </button>
+      </a>
       {signup && (
         <small>
           Después de confirmar tu correo podrás completar tu perfil. El acceso administrativo

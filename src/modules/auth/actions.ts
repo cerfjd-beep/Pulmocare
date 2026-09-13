@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/integrations/supabase/server";
 import { requirePortal } from "./server";
 
-export type FormState = { error?: string; message?: string };
+export type FormState = { error?: string; message?: string; authenticated?: boolean };
 const field = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
 export async function authenticate(_: FormState, data: FormData): Promise<FormState> {
   const email = field(data, "email");
@@ -42,7 +42,7 @@ export async function authenticate(_: FormState, data: FormData): Promise<FormSt
     return { error: "El servicio de acceso no está disponible. Intenta nuevamente más tarde." };
   }
   revalidatePath("/", "layout");
-  redirect("/cuenta");
+  return { authenticated: true };
 }
 export async function signOut() {
   const client = await createSupabaseServerClient();

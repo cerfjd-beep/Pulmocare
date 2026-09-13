@@ -1,5 +1,23 @@
 import { AuthForm } from "@/modules/auth/forms";
-export default function LoginPage() {
+import { authNotices } from "@/modules/auth/notices";
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string; notice?: string }>;
+}) {
+  const params = await searchParams;
+  const state =
+    params.notice === "check_email"
+      ? {
+          message:
+            "Revisa tu correo para confirmar la cuenta. Después vuelve e inicia sesión. Si ya tienes cuenta, inicia sesión directamente.",
+        }
+      : {
+          error:
+            params.notice && Object.hasOwn(authNotices, params.notice)
+              ? authNotices[params.notice]
+              : undefined,
+        };
   return (
     <div className="inner-page">
       <div className="page-heading">
@@ -13,7 +31,11 @@ export default function LoginPage() {
         </div>
       </div>
       <div className="auth-grid">
-        <AuthForm />
+        <AuthForm
+          key={`${params.mode}-${params.notice}`}
+          signup={params.mode === "signup"}
+          state={state}
+        />
         <section className="account-card">
           <h2>Tu espacio en Pulmocare</h2>
           <h3>Pacientes</h3>
