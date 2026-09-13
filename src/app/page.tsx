@@ -16,7 +16,7 @@ import {
   Droplets,
   MoveUpRight,
 } from "lucide-react";
-import { services, money } from "@/modules/services/catalog";
+import { services, servicePackages, money } from "@/modules/services/catalog";
 import { BusinessForm } from "@/modules/business/form";
 import { getSupabaseCatalog } from "../integrations/supabase/catalog";
 
@@ -28,13 +28,20 @@ export default async function Home() {
   const catalog = await getSupabaseCatalog();
   const listedServices =
     catalog.status === "ready"
-      ? catalog.services.map((service) => ({
-        id: service.code,
-        name: service.name,
-        description: service.description,
-        minutes: service.durationMinutes,
-        cents: service.amountCents,
-      }))
+      ? [
+          ...catalog.services.map((service) => ({
+            id: service.code,
+            name: ["nebulization", "rehab"].includes(service.code)
+              ? `${service.name} · sesión individual`
+              : service.name,
+            description: service.description,
+            minutes: service.durationMinutes,
+            cents: service.amountCents,
+          })),
+          ...servicePackages.filter((pack) =>
+            catalog.services.some((service) => service.code === pack.baseService),
+          ),
+        ]
       : catalog.status === "not_configured"
         ? services
         : [];
@@ -127,6 +134,10 @@ export default async function Home() {
               : "Precios orientativos · USD"}
           </span>
         </div>
+        <p>
+          Elige sesiones individuales o un paquete de atención. Aceptamos efectivo, tarjetas y
+          transferencia bancaria.
+        </p>
         <div className="service-grid">
           {listedServices.map((service, index) => {
             const iconIndex = services.findIndex((item) => item.id === service.id);
@@ -156,7 +167,12 @@ export default async function Home() {
                     )}
                   </span>
                   <span>
-                    <Clock3 size={13} /> {service.minutes} min
+                    <Clock3 size={13} />{" "}
+                    {service.minutes === null
+                      ? service.id === "nebulization-7-days"
+                        ? "7 días · 7 sesiones"
+                        : "Programa completo"
+                      : `${service.minutes} min`}
                   </span>
                 </div>
               </Link>

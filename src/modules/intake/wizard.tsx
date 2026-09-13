@@ -145,6 +145,7 @@ export function IntakeWizard({ serviceId }: { serviceId?: string }) {
                 ["Receta", data.fileName || "Sin receta"],
                 ["Dirección", [data.address, data.municipality, data.department].join(" · ")],
                 ["Servicio", selected.name],
+                ["Detalle del servicio", selected.description],
                 ["Horario de preferencia", data.slot],
                 ["Método de preferencia", data.payment],
                 ["Total estimado", money(quote(selected.cents, data.kilometers).total)],

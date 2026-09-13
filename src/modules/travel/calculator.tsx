@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { services, money } from "@/modules/services/catalog";
+const individualServices = services.filter((item) => item.cents !== null);
 import { estimateTravel } from "./estimate";
 import { simulatedRoute } from "./simulation";
 import { localAppointmentToIso } from "./validation";
@@ -28,7 +29,7 @@ export function TravelCalculator({ liveEnabled }: { liveEnabled: boolean }) {
   const [busy, setBusy] = useState(false);
   const revision = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
-  const service = services.find((item) => item.id === serviceId)!;
+  const service = individualServices.find((item) => item.id === serviceId)!;
 
   function invalidate() {
     revision.current++;
@@ -120,7 +121,7 @@ export function TravelCalculator({ liveEnabled }: { liveEnabled: boolean }) {
                 setServiceId(event.target.value);
               }}
             >
-              {services.map((item) => (
+              {individualServices.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name} · {money(item.cents)}
                 </option>

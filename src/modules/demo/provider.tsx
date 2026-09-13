@@ -19,7 +19,7 @@ export interface DemoRequest {
   address: string;
   slot: string;
   payment: string;
-  total: number;
+  total: number | null;
   status: RequestStatus;
   note?: string;
   followUp?: string;

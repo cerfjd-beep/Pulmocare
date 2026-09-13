@@ -60,7 +60,10 @@ export function AdminDashboard() {
             </div>
             <div className="request-meta">
               <span>{request.slot}</span>
-              <strong>{money(request.total)} estimados</strong>
+              <strong>
+                {money(request.total)}
+                {request.total !== null && " estimados"}
+              </strong>
             </div>
             <small>Preferencia de pago: {request.payment}. No representa un cobro recibido.</small>
           </article>

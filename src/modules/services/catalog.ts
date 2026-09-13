@@ -1,5 +1,39 @@
 import { distanceCharge } from "../travel/pricing.ts";
 
+export const servicePackages = [
+  {
+    id: "nebulization-7-days",
+    baseService: "nebulization",
+    name: "Nebulizaciones · tratamiento de 7 días",
+    cents: null,
+    minutes: null,
+    sessions: 7,
+    icon: "nebulization",
+    description:
+      "7 sesiones: una nebulización diaria durante 7 días, según indicación profesional. Precio del tratamiento y traslados por confirmar.",
+  },
+  {
+    id: "rehab-complete",
+    baseService: "rehab",
+    name: "Rehabilitación pulmonar · paquete completo",
+    cents: null,
+    minutes: null,
+    sessions: null,
+    icon: "rehab",
+    description:
+      "Solicita el programa completo. Cantidad de sesiones, frecuencia, duración y precio por confirmar tras la valoración profesional.",
+  },
+] as const;
+
+export const paymentMethods = [
+  "Efectivo",
+  "Pago contra entrega",
+  "Tarjeta de crédito",
+  "Tarjeta de débito",
+  "Transferencia bancaria",
+  "Pago empresarial",
+] as const;
+
 export const services = [
   {
     id: "evaluation",
@@ -11,7 +45,7 @@ export const services = [
   },
   {
     id: "nebulization",
-    name: "Nebulización",
+    name: "Nebulización · sesión individual",
     cents: 1500,
     minutes: 30,
     description: "Administración de terapia inhalada según indicación profesional.",
@@ -35,7 +69,7 @@ export const services = [
   },
   {
     id: "rehab",
-    name: "Rehabilitación pulmonar",
+    name: "Rehabilitación pulmonar · sesión individual",
     cents: 3000,
     minutes: 60,
     description: "Acompañamiento para tu recuperación y actividad cotidiana.",
@@ -49,16 +83,19 @@ export const services = [
     description: "Orientación para pacientes y cuidadores en el hogar.",
     icon: "education",
   },
+  ...servicePackages,
 ] as const;
 
-export function money(cents: number) {
+export function money(cents: number | null) {
+  if (cents === null) return "Precio por confirmar";
   return new Intl.NumberFormat("es-SV", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
-export function quote(serviceCents: number, kilometers: number) {
+export function quote(serviceCents: number | null, kilometers: number) {
   if (!Number.isFinite(kilometers) || kilometers < 0 || kilometers > 25) {
     throw new Error("La cobertura de demostración es de 0 a 25 km.");
   }
+  if (serviceCents === null) return { service: null, travel: null, total: null };
   const travel = distanceCharge(kilometers * 1000);
   return { service: serviceCents, travel, total: serviceCents + travel };
 }

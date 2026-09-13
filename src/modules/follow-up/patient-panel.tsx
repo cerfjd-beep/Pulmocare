@@ -29,7 +29,7 @@ export function PatientPanel() {
               <p>Preferencia de horario · Profesional por asignar</p>
             </div>
             <strong>
-              {money(item.total)} <small>estimados</small>
+              {money(item.total)} {item.total !== null && <small>estimados</small>}
             </strong>
           </div>
           <p>{item.address}</p>

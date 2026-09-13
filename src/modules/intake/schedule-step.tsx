@@ -1,4 +1,4 @@
-import { services, money, quote } from "@/modules/services/catalog";
+import { services, money, quote, paymentMethods } from "@/modules/services/catalog";
 import type { IntakeData } from "./model";
 import type { UpdateIntake } from "./clinical-step";
 
@@ -22,6 +22,14 @@ export function ScheduleStep({ data, update }: { data: IntakeData; update: Updat
           ))}
         </select>
       </label>
+      <p>{selected.description}</p>
+      {selected.cents === null && (
+        <p className="notice">
+          El horario seleccionado es una preferencia para iniciar el programa. Las visitas se
+          coordinarán después de la revisión; el total y los traslados del paquete se confirmarán
+          antes de contratarlo.
+        </p>
+      )}
       <fieldset>
         <legend>Horarios de ejemplo · Profesional por asignar</legend>
         <div className="slot-grid">
@@ -46,27 +54,28 @@ export function ScheduleStep({ data, update }: { data: IntakeData; update: Updat
       <label>
         Método de pago de preferencia
         <select value={data.payment} onChange={(e) => update("payment", e.target.value)}>
-          {[
-            "Pago contra entrega",
-            "Tarjeta de crédito",
-            "Tarjeta de débito",
-            "Transferencia bancaria",
-            "Pago empresarial",
-          ].map((method) => (
+          {paymentMethods.map((method) => (
             <option key={method}>{method}</option>
           ))}
         </select>
       </label>
+      {data.payment === "Efectivo" && (
+        <p>Pago en efectivo al recibir la atención, conforme al importe previamente confirmado.</p>
+      )}
       <div className="notice">
         No se solicitan datos bancarios ni se realizan cobros en esta demostración.
       </div>
       <div className="price-breakdown">
         <div>
-          <span>Servicio · {selected.minutes} min</span>
+          <span>
+            {selected.minutes === null ? "Paquete completo" : `Servicio · ${selected.minutes} min`}
+          </span>
           <strong>{money(total.service)}</strong>
         </div>
         <div>
-          <span>Traslado · {data.kilometers} km</span>
+          <span>
+            {selected.cents === null ? "Traslados del paquete" : `Traslado · ${data.kilometers} km`}
+          </span>
           <strong>{money(total.travel)}</strong>
         </div>
         <div className="price-total">
