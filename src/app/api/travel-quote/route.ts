@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { getAccount } from "@/modules/auth/server";
 import { googleRoutes } from "@/integrations/maps/google-routes";
 import { estimateTravel } from "@/modules/travel/estimate";
 import { TravelError, type TravelInput } from "@/modules/travel/types";
@@ -13,6 +14,19 @@ function reply(body: unknown, status = 200) {
 }
 
 export async function POST(request: Request) {
+  const account = await getAccount();
+  if (!account) return reply({ error: "Inicia sesión para consultar rutas." }, 401);
+  const access = account.access;
+  if (
+    !access?.active ||
+    !(
+      access.roles.includes("operations_admin") ||
+      (access.professional_status === "verified" &&
+        access.roles.some((r) => ["therapist", "clinical_reviewer"].includes(r)))
+    )
+  ) {
+    return reply({ error: "No tienes permiso para consultar rutas." }, 403);
+  }
   const key = process.env.GOOGLE_MAPS_API_KEY;
   const secret = process.env.TRAVEL_QUOTE_ACCESS_TOKEN;
   if (!key || !secret || secret.length < 32) {

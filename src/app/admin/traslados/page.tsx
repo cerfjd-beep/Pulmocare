@@ -1,9 +1,13 @@
 import Link from "next/link";
+import { requirePortal } from "@/modules/auth/server";
+import { redirect } from "next/navigation";
 import { TravelCalculator } from "@/modules/travel/calculator";
 
 export const dynamic = "force-dynamic";
 
-export default function AdminTravelPage() {
+export default async function AdminTravelPage() {
+  const account = await requirePortal("admin");
+  if (!account.access?.roles.includes("operations_admin")) redirect("/admin");
   const liveEnabled = Boolean(
     process.env.GOOGLE_MAPS_API_KEY && (process.env.TRAVEL_QUOTE_ACCESS_TOKEN?.length ?? 0) >= 32,
   );

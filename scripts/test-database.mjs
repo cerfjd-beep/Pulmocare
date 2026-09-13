@@ -80,7 +80,23 @@ try {
     for (const file of files) {
       try {
         await client.query("BEGIN");
-        await client.query(await readFile(join("supabase/migrations", file), "utf8"));
+        if (process.argv.includes("--account-update") && file.startsWith("20260911000026")) {
+          // The SQL Editor updater owns its transaction. Apply it to the first 25 migrations.
+          await client.query("COMMIT");
+          const update = await readFile("supabase/install/04-actualizar-perfiles.sql", "utf8");
+          await client.query(update);
+          let refused = false;
+          try {
+            await client.query(update);
+          } catch (error) {
+            await client.query("ROLLBACK");
+            if (!error.message.includes("Account update already installed")) throw error;
+            refused = true;
+          }
+          if (!refused) throw new Error("Repeated account update was not refused");
+          console.log("Account upgrade applied; repeat safely refused.");
+          await client.query("BEGIN");
+        } else await client.query(await readFile(join("supabase/migrations", file), "utf8"));
         await client.query("COMMIT");
         console.log(`Applied ${file}`);
       } catch (error) {

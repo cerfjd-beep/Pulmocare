@@ -1,9 +1,13 @@
 import Link from "next/link";
+import { requirePortal } from "@/modules/auth/server";
+import { redirect } from "next/navigation";
 import { TravelCalculator } from "@/modules/travel/calculator";
 
 export const dynamic = "force-dynamic";
 
-export default function TravelPage() {
+export default async function TravelPage() {
+  const account = await requirePortal("provider");
+  if (account.access?.professional_status !== "verified") redirect("/equipo");
   const liveEnabled = Boolean(
     process.env.GOOGLE_MAPS_API_KEY && (process.env.TRAVEL_QUOTE_ACCESS_TOKEN?.length ?? 0) >= 32,
   );

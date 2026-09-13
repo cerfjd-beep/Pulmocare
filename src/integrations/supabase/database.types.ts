@@ -3102,6 +3102,7 @@ export type Database = {
         };
         Returns: undefined;
       };
+      get_my_access: { Args: {}; Returns: Json };
       grant_role: {
         Args: {
           target_profile: string;
@@ -3116,6 +3117,7 @@ export type Database = {
         };
         Returns: string;
       };
+      list_my_assignments: { Args: {}; Returns: { id: string; status: string; purpose: string }[] };
       list_operations_requests: {
         Args: {
           page_size?: number;
@@ -3128,6 +3130,16 @@ export type Database = {
           service_id: string;
           preferred_at: string;
           created_at: string;
+        }[];
+      };
+      list_provider_registrations: {
+        Args: {};
+        Returns: {
+          id: string;
+          display_name: string;
+          specialty: string;
+          registration_ref: string;
+          verification_status: string;
         }[];
       };
       offer_quote: {
@@ -3167,6 +3179,14 @@ export type Database = {
         };
         Returns: string;
       };
+      register_provider: {
+        Args: {
+          full_name: string;
+          specialty: string;
+          registration_ref: string;
+        };
+        Returns: string;
+      };
       request_refund: {
         Args: {
           payment: string;
@@ -3175,6 +3195,13 @@ export type Database = {
           reason: string;
         };
         Returns: string;
+      };
+      review_provider: {
+        Args: {
+          target: string;
+          approve: boolean;
+        };
+        Returns: undefined;
       };
       revoke_access: {
         Args: {

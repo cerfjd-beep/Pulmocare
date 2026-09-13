@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { DemoProvider } from "@/modules/demo/provider";
-import { Shell } from "@/components/shell";
+import { AccountShell } from "@/components/account-shell";
+import { getAccount } from "@/modules/auth/server";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,12 +10,13 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const account = await getAccount();
   return (
     <html lang="es">
       <body>
         <DemoProvider>
-          <Shell>{children}</Shell>
+          <AccountShell account={account}>{children}</AccountShell>
         </DemoProvider>
       </body>
     </html>

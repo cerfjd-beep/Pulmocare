@@ -7,22 +7,24 @@ roles, permisos por fila (RLS) y funciones autorizadas. El esquema no cambia el 
 ## Estado
 
 - 43 tablas de aplicación, más la configuración comercial privada.
-- 25 migraciones ordenadas; seis servicios y tarifas provisionales en `draft`.
+- 26 migraciones ordenadas; seis servicios y tarifas provisionales en `draft`.
 - Cuatro buckets privados: recetas, acreditaciones, adjuntos clínicos y soporte financiero.
 - Operaciones transaccionales para identidad/roles, solicitudes, revisión, ofertas y aceptación,
   retenciones y confirmación, firma/seguimiento, pagos/devoluciones y trabajos pendientes.
 - No hay pacientes reales, roles administrativos automáticos ni protocolos clínicos aprobados.
 - El catálogo de inicio y `/api/catalog` consultan Supabase cuando se configuran las variables
   públicas. Los precios borrador se muestran como «Precio por confirmar».
-- Las solicitudes, visitas y paneles de demostración siguen usando `DemoProvider`; esta conexión
-  de catálogo no activa por sí sola la persistencia clínica ni una pantalla de inicio de sesión.
+- El acceso con correo y contraseña y los tres paneles consultan Supabase. El formulario
+  de solicitud sigue siendo una demostración. Ver [activación de perfiles](../docs/accesos.md).
 
-**No aplicado al proyecto remoto.** El proyecto indicado es `dnxwecpzjobtnclyywkz`.
+**Catálogo remoto conectado y función de acceso detectada.** El proyecto indicado es `dnxwecpzjobtnclyywkz`.
 Las claves de la aplicación de `.env.local` no conceden administración SQL. En esta sesión
 no hay conexión PostgreSQL remota, token de administración ni navegador conectado.
 
-Comprobación remota del 11 de septiembre de 2026: Auth respondió HTTP 200 con la clave pública;
-la consulta de servicios respondió HTTP 404 / `PGRST205` (tabla no disponible en Data API).
+Comprobación remota del 12 de septiembre de 2026: Auth y catálogo respondieron HTTP 200
+con la clave pública; se recuperaron los seis servicios. `get_my_access` respondió
+HTTP 401 / `42501` a la consulta anónima: la función existe y deniega ese acceso.
+Falta comprobar el recorrido con una cuenta autenticada en producción.
 
 ## Conexión de la aplicación y Vercel
 
@@ -37,7 +39,7 @@ En Vercel elegir Production y los ambientes Preview que se utilizarán. Volver a
 cambiar variables. No copiar la clave secret/service_role al navegador ni al repositorio.
 La aplicación utiliza únicamente la clave pública y las políticas de Supabase para el catálogo.
 Los clientes de servidor y navegador están tipados; el proxy renueva las cookies para las rutas
-que posteriormente usarán sesiones. La autorización clínica sigue dependiendo de los roles SQL.
+autenticadas. La autorización clínica sigue dependiendo de los roles SQL.
 
 Sin configuración, el inicio conserva el catálogo demostrativo. Con configuración incompleta,
 tabla ausente o fallo de red, no afirma estar conectado ni sustituye datos remotos por ficticios:
@@ -61,7 +63,7 @@ valores de variables. No ejecuta SQL de administración ni consulta expedientes.
    El archivo ejecuta las migraciones en una transacción e incluye el historial compatible
    con Supabase CLI. Un error revierte toda la instalación. No elimina tablas ni datos.
 4. Ejecutar `install/03-verificar-instalacion.sql`. En una base nueva se esperan 43 tablas
-   protegidas, 25 migraciones, cuatro buckets privados, seis precios `draft`, una tarifa
+   protegidas, 26 migraciones, cuatro buckets privados, seis precios `draft`, una tarifa
    `draft` y cero administradores asignados. Las últimas dos consultas deben devolver cero filas.
 5. Conservar el resultado de esta verificación para registrar la instalación remota.
 
@@ -75,8 +77,8 @@ npm.cmd run db:bundle
 
 ## Pruebas y tipos
 
-Validación local del 11 de septiembre de 2026: las 25 migraciones se aplicaron en
-PostgreSQL 17.10 y el instalador completo pasó 25 comprobaciones de permisos, integridad,
+Validación local del 12 de septiembre de 2026: las 26 migraciones se aplicaron en
+PostgreSQL 17.10 y el instalador completo pasó 26 comprobaciones de permisos, integridad,
 concurrencia e idempotencia. Una segunda ejecución del instalador rechazó correctamente
 la instalación existente. Esto no acredita ejecución ni pruebas de API en el proyecto remoto.
 

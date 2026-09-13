@@ -4,7 +4,7 @@ SELECT count(*) AS application_tables,
 FROM pg_tables WHERE schemaname = 'public';
 
 SELECT version, name FROM supabase_migrations.schema_migrations
-WHERE version BETWEEN '20260911000001' AND '20260911000025' ORDER BY version;
+WHERE version BETWEEN '20260911000001' AND '20260911000026' ORDER BY version;
 
 SELECT id, public, file_size_limit FROM storage.buckets
 WHERE id IN ('prescriptions','credentials','clinical-attachments','billing-support');

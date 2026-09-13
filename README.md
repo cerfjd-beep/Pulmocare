@@ -14,22 +14,27 @@ npm.cmd run dev
 
 Abrir http://127.0.0.1:3000. Para producción local: `npm.cmd run build` y `npm.cmd start`.
 
-## Recorrido de demostración
+## Inicio de sesión y perfiles
+
+En `/ingresar` puedes crear una cuenta con correo y contraseña. Tras confirmar el correo,
+completa tu perfil en `/cuenta`. Los pacientes acceden a `/mis-citas`, los prestadores a
+`/equipo` y los administradores autorizados a `/admin`. La navegación y las consultas respetan
+los permisos guardados en Supabase. Ver [activación de perfiles y primer administrador](docs/accesos.md).
+
+## Formulario de demostración
 
 1. Elegir un servicio desde Inicio o entrar en Solicitar atención.
 2. Responder con datos ficticios y una receta ficticia si se elige «Sí».
 3. Completar ubicación, distancia simulada, servicio y horario de preferencia.
-4. Crear la solicitud y abrir Mis solicitudes.
-5. Abrir Panel del equipo, revisar el detalle y simular una revisión profesional.
-6. Simular la visita, completar el registro y responder el seguimiento desde Mis solicitudes.
+4. Completar la simulación. Esta solicitud no se guarda en la base de datos ni aparece en los paneles reales.
 
 Los cambios viven exclusivamente en memoria. Se comparten entre rutas durante la sesión
 y se eliminan al recargar. No se envían archivos, mensajes ni pagos.
-Las vistas del paciente y equipo son demostrativas y no tienen autenticación.
+El formulario requiere una cuenta de paciente; los paneles autenticados muestran datos reales o estados vacíos.
 No introducir datos de pacientes reales.
 
 El catálogo de inicio puede leerse desde Supabase con las variables públicas de `.env.example`.
-Las solicitudes y los paneles siguen en modo demostración. Ver
+El formulario de solicitud sigue en modo demostración. Ver
 [conexión e instalación de Supabase](supabase/README.md) para crear las tablas y configurar Vercel.
 
 ## Validación
@@ -47,8 +52,8 @@ Incluye inicio, seis servicios, cuestionario, bloqueo demostrativo ante señales
 selección local de archivo, ubicación manual, cotización, horarios ficticios, bandeja del
 equipo, registro de visita, seguimiento y formulario empresarial de ejemplo.
 
-Pendientes: autenticación, PostgreSQL/Supabase, protocolos clínicos aprobados, mapa real,
-agenda transaccional, cobros, DTE, notificaciones, permisos y auditoría de producción.
+Pendientes: activar y verificar la configuración remota, conectar el formulario clínico real,
+protocolos clínicos aprobados, cobros, DTE y notificaciones de producción.
 La instalación PWA y el comportamiento sin conexión se implementarán en una etapa posterior.
 
 ## Documentación

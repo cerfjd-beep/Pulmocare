@@ -599,6 +599,58 @@ export async function runChecks(db, config) {
       1,
     );
   });
+  await check(
+    "provider registration cannot self-approve or gain administrative permissions",
+    async () => {
+      const candidate = await identity("candidate");
+      const result = await actor(
+        candidate.auth,
+        "SELECT register_provider('TEST provider','Respiratory','TEST-123') AS id",
+      );
+      const id = result.rows[0].id;
+      assert.equal(
+        (
+          await actor(
+            candidate.auth,
+            "SELECT register_provider('TEST provider','Respiratory','TEST-123') AS id",
+          )
+        ).rows[0].id,
+        id,
+      );
+      const info = (await actor(candidate.auth, "SELECT get_my_access() AS info")).rows[0].info;
+      assert.equal(info.professional_status, "pending");
+      assert.deepEqual(info.roles, []);
+      await denied(() => actor(candidate.auth, "SELECT review_provider($1,true)", [id]));
+      await denied(() => actor(candidate.auth, "SELECT * FROM list_provider_registrations()"));
+      await denied(() => actor(candidate.auth, "SELECT get_my_access()", [], db, "anon"));
+      await actor(access.auth, "SELECT review_provider($1,true)", [id]);
+      const approved = (await actor(candidate.auth, "SELECT get_my_access() AS info")).rows[0].info;
+      assert.equal(approved.professional_status, "verified");
+      assert.deepEqual(approved.roles, ["therapist"]);
+      assert.equal(
+        (await actor(candidate.auth, "SELECT * FROM list_my_assignments()")).rowCount,
+        0,
+      );
+      await actor(access.auth, "SELECT review_provider($1,false)", [id]);
+      await actor(
+        candidate.auth,
+        "SELECT register_provider('TEST provider','Respiratory','TEST-123')",
+      );
+      assert.equal(
+        (await actor(candidate.auth, "SELECT get_my_access() AS info")).rows[0].info
+          .professional_status,
+        "suspended",
+      );
+      await db.query("UPDATE profiles SET active=false WHERE id=$1", [candidate.profile]);
+      assert.deepEqual(
+        (await actor(candidate.auth, "SELECT get_my_access() AS info")).rows[0].info.roles,
+        [],
+      );
+      await denied(() =>
+        actor(candidate.auth, "SELECT register_provider('TEST provider','Respiratory','TEST-123')"),
+      );
+    },
+  );
   console.log(
     `${count} database checks passed (real PostgreSQL, simulated Auth/Storage contracts).`,
   );
