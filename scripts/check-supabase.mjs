@@ -32,7 +32,40 @@ if (!report.configured) {
         code: response.ok ? undefined : payload?.code,
         rows: Array.isArray(payload) ? payload.length : undefined,
       };
+      if (name === "auth" && response.ok) {
+        report.auth.emailEnabled = payload?.external?.email;
+        report.auth.signupDisabled = payload?.disable_signup;
+        report.auth.autoConfirm = payload?.mailer_autoconfirm;
+      }
       if (!response.ok) process.exitCode = 1;
+    } catch {
+      report[name] = { error: "Network request failed" };
+      process.exitCode = 1;
+    }
+  }
+  for (const [name, args] of [
+    ["get_my_access", {}],
+    ["register_patient", { display_name: "diagnostic" }],
+    [
+      "register_provider",
+      { full_name: "diagnostic", specialty: "diagnostic", registration_ref: "diagnostic" },
+    ],
+  ]) {
+    // Anonymous requests must be denied; never create an Auth user or application profile.
+    try {
+      const response = await fetch(new URL(`/rest/v1/rpc/${name}`, url), {
+        method: "POST",
+        headers: { apikey: key, "Content-Type": "application/json" },
+        body: JSON.stringify(args),
+        signal: AbortSignal.timeout(15000),
+      });
+      const payload = await response.json().catch(() => null);
+      report[name] = {
+        status: response.status,
+        code: payload?.code,
+        installedAndProtected: response.status === 401 && payload?.code === "42501",
+      };
+      if (!report[name].installedAndProtected) process.exitCode = 1;
     } catch {
       report[name] = { error: "Network request failed" };
       process.exitCode = 1;

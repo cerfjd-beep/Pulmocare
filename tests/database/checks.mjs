@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
+import { readFile } from "node:fs/promises";
 
 export async function runChecks(db, config) {
   let count = 0;
@@ -73,6 +74,60 @@ export async function runChecks(db, config) {
     );
     await denied(() => actor(null, "SELECT * FROM patients", [], db, "anon"));
   });
+  await check("SQL bootstrap creates an admin without a patient and safely repeats", async () => {
+    const sql = (await readFile("supabase/install/05-primer-administrador.sql", "utf8"))
+      .replace(/^BEGIN;$/gm, "")
+      .replace(/^COMMIT;$/gm, "");
+    const auth = randomUUID();
+    await db.query("BEGIN");
+    try {
+      await db.query(
+        "INSERT INTO auth.users(id,email,email_confirmed_at) VALUES ($1,'13.guzman@gmail.com',now())",
+        [auth],
+      );
+      await db.query(sql);
+      await db.query(sql);
+      const result = (await actorInBootstrap()).rows[0];
+      assert.deepEqual(result.roles.sort(), ["access_admin", "operations_admin"]);
+      assert.equal(result.patients, 0);
+      assert.equal(result.events, 2);
+      async function actorInBootstrap() {
+        return db.query(
+          `SELECT
+          (SELECT array_agg(role) FROM role_assignments WHERE profile_id=p.id) AS roles,
+          (SELECT count(*)::int FROM patients WHERE profile_id=p.id) AS patients,
+          (SELECT count(*)::int FROM audit_events WHERE entity_id=p.id) AS events
+          FROM profiles p WHERE auth_user_id=$1`,
+          [auth],
+        );
+      }
+    } finally {
+      await db.query("ROLLBACK");
+    }
+  });
+  await check(
+    "new Auth accounts can create both profile types without an existing identity",
+    async () => {
+      for (const first of ["patient", "provider"]) {
+        const auth = randomUUID();
+        await db.query("INSERT INTO auth.users(id) VALUES ($1)", [auth]);
+        assert.equal((await actor(auth, "SELECT get_my_access() AS info")).rows[0].info, null);
+        const statements = {
+          patient: "SELECT register_patient('TEST new patient')",
+          provider: "SELECT register_provider('TEST new provider','Respiratory','TEST-NEW')",
+        };
+        await actor(auth, statements[first]);
+        await actor(auth, statements[first === "patient" ? "provider" : "patient"]);
+        const info = (await actor(auth, "SELECT get_my_access() AS info")).rows[0].info;
+        assert.deepEqual(info.roles, ["patient"]);
+        assert.equal(info.professional_status, "pending");
+        assert.equal(
+          (await db.query("SELECT id FROM profiles WHERE auth_user_id=$1", [auth])).rowCount,
+          1,
+        );
+      }
+    },
+  );
   const alice = await identity("patient A");
   const bob = await identity("patient B");
   const caregiver = await identity("caregiver", ["caregiver"]);
@@ -225,6 +280,24 @@ export async function runChecks(db, config) {
   );
   await actor(ops.auth, "SELECT assign_reviewer($1, $2)", [request.id, reviewer.professional]);
   await check("authorized clinical reads are audited; suspension removes access", async () => {
+    for (const kind of ["degree", "license"]) {
+      const path = `${reviewer.profile}/${randomUUID()}.jpg`;
+      await insert("documents", {
+        owner_profile_id: reviewer.profile,
+        professional_id: reviewer.professional,
+        category: "credential",
+        bucket_id: "credentials",
+        object_path: path,
+        mime_type: "image/jpeg",
+        size_bytes: 4,
+        checksum_sha256: "a".repeat(64),
+        uploaded_at: new Date(),
+        credential_kind: kind,
+      });
+      await db.query("INSERT INTO storage.objects(bucket_id,name) VALUES ('credentials',$1)", [
+        path,
+      ]);
+    }
     const read = () =>
       actor(reviewer.auth, "SELECT read_clinical_request($1, 'review') AS result", [request.id]);
     assert.equal((await read()).rows[0].result.id, request.id);
@@ -620,18 +693,86 @@ export async function runChecks(db, config) {
       const info = (await actor(candidate.auth, "SELECT get_my_access() AS info")).rows[0].info;
       assert.equal(info.professional_status, "pending");
       assert.deepEqual(info.roles, []);
+      assert.equal(
+        (await actor(candidate.auth, "SELECT private.professional_for_role('therapist') AS id"))
+          .rows[0].id,
+        null,
+      );
       await denied(() => actor(candidate.auth, "SELECT review_provider($1,true)", [id]));
       await denied(() => actor(candidate.auth, "SELECT * FROM list_provider_registrations()"));
       await denied(() => actor(candidate.auth, "SELECT get_my_access()", [], db, "anon"));
+      await invalid(() => actor(access.auth, "SELECT review_provider($1,true)", [id]));
+      for (const kind of ["degree", "license"]) {
+        const path = (
+          await actor(
+            candidate.auth,
+            "SELECT reserve_provider_photo($1,'image/jpeg',4,$2) AS path",
+            [kind, "a".repeat(64)],
+          )
+        ).rows[0].path;
+        // Reserving metadata alone cannot authorize a professional.
+        await invalid(() => actor(access.auth, "SELECT review_provider($1,true)", [id]));
+        await denied(() =>
+          actor(
+            alice.auth,
+            "INSERT INTO storage.objects(bucket_id,name) VALUES ('credentials',$1)",
+            [path],
+          ),
+        );
+        await actor(
+          candidate.auth,
+          "INSERT INTO storage.objects(bucket_id,name) VALUES ('credentials',$1)",
+          [path],
+        );
+        const photo = (
+          await actor(candidate.auth, "SELECT * FROM list_provider_photos()")
+        ).rows.find((p) => p.credential_kind === kind);
+        await denied(() => actor(alice.auth, "SELECT get_provider_photo($1)", [photo.id]));
+        await denied(() => actor(ops.auth, "SELECT get_provider_photo($1)", [photo.id]));
+        assert.equal(
+          (await actor(access.auth, "SELECT get_provider_photo($1) AS path", [photo.id])).rows[0]
+            .path,
+          path,
+        );
+        assert.equal(
+          (await actor(alice.auth, "SELECT * FROM storage.objects WHERE name=$1", [path])).rowCount,
+          0,
+        );
+        assert.equal(
+          (await actor(candidate.auth, "SELECT * FROM storage.objects WHERE name=$1", [path]))
+            .rowCount,
+          1,
+        );
+        assert.equal(
+          (await actor(access.auth, "SELECT * FROM storage.objects WHERE name=$1", [path]))
+            .rowCount,
+          1,
+        );
+      }
       await actor(access.auth, "SELECT review_provider($1,true)", [id]);
+      await denied(() =>
+        actor(candidate.auth, "SELECT reserve_provider_photo('degree','image/jpeg',4,$1)", [
+          "a".repeat(64),
+        ]),
+      );
       const approved = (await actor(candidate.auth, "SELECT get_my_access() AS info")).rows[0].info;
       assert.equal(approved.professional_status, "verified");
       assert.deepEqual(approved.roles, ["therapist"]);
+      assert.equal(
+        (await actor(candidate.auth, "SELECT private.professional_for_role('therapist') AS id"))
+          .rows[0].id,
+        id,
+      );
       assert.equal(
         (await actor(candidate.auth, "SELECT * FROM list_my_assignments()")).rowCount,
         0,
       );
       await actor(access.auth, "SELECT review_provider($1,false)", [id]);
+      assert.equal(
+        (await actor(candidate.auth, "SELECT private.professional_for_role('therapist') AS id"))
+          .rows[0].id,
+        null,
+      );
       await actor(
         candidate.auth,
         "SELECT register_provider('TEST provider','Respiratory','TEST-123')",

@@ -94,21 +94,31 @@ export function AuthForm({ signup = false, state = {} }: { signup?: boolean; sta
     </form>
   );
 }
-export function OnboardingForm() {
-  const [kind, setKind] = useState("patient");
+export function OnboardingForm({
+  kinds = ["patient", "provider"],
+  name = "",
+}: {
+  kinds?: ("patient" | "provider")[];
+  name?: string;
+}) {
+  const [kind, setKind] = useState(kinds[0] ?? "patient");
   const [state, action, pending] = useActionState(onboard, {});
   return (
     <form action={action} className="account-form">
-      <h2>Completa tu perfil</h2>
+      <h2>{name ? "Agregar perfil" : "Completa tu perfil"}</h2>
       <label>
         Nombre completo
-        <input name="name" autoComplete="name" required maxLength={200} />
+        <input name="name" autoComplete="name" defaultValue={name} required maxLength={200} />
       </label>
       <label>
         Tipo de perfil
-        <select name="kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-          <option value="patient">Paciente</option>
-          <option value="provider">Prestador del servicio</option>
+        <select
+          name="kind"
+          value={kind}
+          onChange={(e) => setKind(e.target.value === "provider" ? "provider" : "patient")}
+        >
+          {kinds.includes("patient") && <option value="patient">Paciente</option>}
+          {kinds.includes("provider") && <option value="provider">Prestador del servicio</option>}
         </select>
       </label>
       {kind === "provider" && (
@@ -121,12 +131,16 @@ export function OnboardingForm() {
             Número de registro profesional
             <input name="registration" required maxLength={200} />
           </label>
-          <p>Tu perfil quedará pendiente de verificación por un administrador.</p>
+          <p>
+            Enviarás una solicitud de autorización. La administración debe verificar tu identidad,
+            título y registro profesional vigente antes de habilitar tu perfil de terapeuta. En el
+            siguiente paso deberás cargar una foto de tu título y de tu carnet profesional.
+          </p>
         </>
       )}
       <Feedback state={state} />
       <button className="button primary" disabled={pending}>
-        {pending ? "Guardando…" : "Guardar perfil"}
+        {pending ? "Guardando…" : kind === "provider" ? "Solicitar autorización" : "Guardar perfil"}
       </button>
     </form>
   );
@@ -137,8 +151,8 @@ export function ProviderReview({ id, status }: { id: string; status: string }) {
     <form action={action} className="account-form compact">
       <input type="hidden" name="id" value={id} />
       <label>
-        <input type="checkbox" required /> Confirmo que revisé la identidad y el registro
-        profesional para esta decisión.
+        <input type="checkbox" name="credentials_checked" /> Confirmo que verifiqué la identidad, el
+        título y la autorización profesional vigente con la entidad emisora.
       </label>
       <div className="account-actions">
         {status !== "verified" && (

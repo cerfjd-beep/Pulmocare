@@ -1043,6 +1043,7 @@ export type Database = {
           checksum_sha256: string;
           scan_status: string;
           uploaded_at: string;
+          credential_kind: string | null;
         };
         Insert: {
           id?: string;
@@ -1061,6 +1062,7 @@ export type Database = {
           checksum_sha256: string;
           scan_status?: string;
           uploaded_at: string;
+          credential_kind?: string | null;
         };
         Update: {
           id?: string;
@@ -1079,6 +1081,7 @@ export type Database = {
           checksum_sha256?: string;
           scan_status?: string;
           uploaded_at?: string;
+          credential_kind?: string | null;
         };
         Relationships: [
           {
@@ -3103,6 +3106,12 @@ export type Database = {
         Returns: undefined;
       };
       get_my_access: { Args: {}; Returns: Json };
+      get_provider_photo: {
+        Args: {
+          target: string;
+        };
+        Returns: string;
+      };
       grant_role: {
         Args: {
           target_profile: string;
@@ -3131,6 +3140,12 @@ export type Database = {
           preferred_at: string;
           created_at: string;
         }[];
+      };
+      list_provider_photos: {
+        Args: {
+          target?: string;
+        };
+        Returns: { id: string; credential_kind: string; created_at: string }[];
       };
       list_provider_registrations: {
         Args: {};
@@ -3193,6 +3208,15 @@ export type Database = {
           amount: number;
           request_key: string;
           reason: string;
+        };
+        Returns: string;
+      };
+      reserve_provider_photo: {
+        Args: {
+          photo_kind: string;
+          photo_mime: string;
+          photo_size: number;
+          photo_hash: string;
         };
         Returns: string;
       };

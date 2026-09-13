@@ -10,9 +10,16 @@ const access = (roles: string[], status: string | null = null): Access => ({
 });
 test("patient and provider accounts cannot acquire an administrator portal", () => {
   assert.deepEqual(portals(access(["patient"])), ["patient"]);
-  assert.deepEqual(portals(access([], "pending")), ["provider"]);
+  assert.deepEqual(portals(access([], "pending")), []);
   assert.deepEqual(portals(access(["therapist"], "verified")), ["provider"]);
   assert.deepEqual(portals(access(["admin"])), []);
+});
+test("professional portal requires both approval and an active clinical role", () => {
+  assert.deepEqual(portals(access(["therapist"], "pending")), []);
+  assert.deepEqual(portals(access(["therapist"], "suspended")), []);
+  assert.deepEqual(portals(access(["therapist"])), []);
+  assert.deepEqual(portals(access([], "verified")), []);
+  assert.deepEqual(portals(access(["clinical_reviewer"], "verified")), ["provider"]);
 });
 test("revoked or inactive permissions immediately remove portals", () => {
   assert.deepEqual(portals({ ...access(["access_admin", "patient"]), active: false }), []);

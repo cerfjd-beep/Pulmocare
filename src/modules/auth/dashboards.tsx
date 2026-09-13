@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePortal } from "./server";
 import { createSupabaseServerClient } from "@/integrations/supabase/server";
 import { ProviderReview } from "./forms";
+import { ProviderDocuments } from "./provider-documents";
 const labels: Record<string, string> = {
   draft: "Borrador",
   submitted: "Enviada",
@@ -199,6 +200,7 @@ export async function AdministrationDashboard() {
                     {p.specialty} · Registro: {p.registration_ref}
                   </p>
                   <strong>{statusLabel(p.verification_status)}</strong>
+                  <ProviderDocuments target={p.id} />
                   <ProviderReview id={p.id} status={p.verification_status} />
                 </article>
               ))}

@@ -78,7 +78,7 @@ export async function onboard(_: FormState, data: FormData): Promise<FormState> 
     return { error: "No fue posible conectar. Intenta nuevamente." };
   }
   revalidatePath("/", "layout");
-  redirect(kind === "patient" ? "/mis-citas" : "/equipo");
+  redirect(kind === "patient" ? "/mis-citas" : "/cuenta");
 }
 export async function reviewProvider(_: FormState, data: FormData): Promise<FormState> {
   const account = await requirePortal("admin");
@@ -87,6 +87,11 @@ export async function reviewProvider(_: FormState, data: FormData): Promise<Form
   const decision = field(data, "decision");
   if (!["approve", "suspend"].includes(decision))
     return { error: "Selecciona una decisión válida." };
+  if (decision === "approve" && data.get("credentials_checked") !== "on")
+    return {
+      error:
+        "Debes verificar la identidad, el título y la autorización profesional vigente antes de aprobar.",
+    };
   try {
     const client = await createSupabaseServerClient();
     const { error } = await client.rpc("review_provider", {
@@ -94,7 +99,10 @@ export async function reviewProvider(_: FormState, data: FormData): Promise<Form
       approve: decision === "approve",
     });
     if (error)
-      return { error: "No se pudo actualizar este prestador. No puedes aprobar tu propio perfil." };
+      return {
+        error:
+          "No se pudo actualizar este prestador. Para aprobarlo deben estar cargadas las fotos del título y del carnet. No puedes aprobar tu propio perfil.",
+      };
   } catch {
     return { error: "No fue posible conectar." };
   }

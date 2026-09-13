@@ -31,7 +31,7 @@ export function portals(access: Access | null): Portal[] {
   if (access.roles.some((r) => ["access_admin", "operations_admin", "billing_admin"].includes(r)))
     result.push("admin");
   if (
-    access.professional_status ||
+    access.professional_status === "verified" &&
     access.roles.some((r) => ["therapist", "clinical_reviewer"].includes(r))
   )
     result.push("provider");

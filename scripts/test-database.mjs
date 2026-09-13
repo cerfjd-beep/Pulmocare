@@ -96,6 +96,21 @@ try {
           if (!refused) throw new Error("Repeated account update was not refused");
           console.log("Account upgrade applied; repeat safely refused.");
           await client.query("BEGIN");
+        } else if (process.argv.includes("--photo-update") && file.startsWith("20260913000027")) {
+          await client.query("COMMIT");
+          const update = await readFile("supabase/install/06-documentos-terapeutas.sql", "utf8");
+          await client.query(update);
+          let refused = false;
+          try {
+            await client.query(update);
+          } catch (error) {
+            await client.query("ROLLBACK");
+            if (error.code !== "42701") throw error;
+            refused = true;
+          }
+          if (!refused) throw new Error("Repeated photo update was not refused");
+          console.log("Photo update applied; repeat safely refused.");
+          await client.query("BEGIN");
         } else await client.query(await readFile(join("supabase/migrations", file), "utf8"));
         await client.query("COMMIT");
         console.log(`Applied ${file}`);
