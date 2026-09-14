@@ -4,8 +4,8 @@ BEGIN;
 SELECT pg_advisory_xact_lock(11092026);
 -- Private evidence for professional authorization. Existing clinical documents stay inaccessible.
 ALTER TABLE public.documents ADD COLUMN credential_kind text
- CHECK (credential_kind IN ('degree','license') AND category='credential'
-   AND mime_type IN ('image/jpeg','image/png'));
+ CHECK (credential_kind IS NULL OR (credential_kind IN ('degree','license')
+   AND category='credential' AND mime_type IN ('image/jpeg','image/png')));
 GRANT pulmocare_executor TO postgres;
 GRANT CREATE ON SCHEMA public,private TO pulmocare_executor;
 GRANT USAGE ON SCHEMA storage TO pulmocare_executor;

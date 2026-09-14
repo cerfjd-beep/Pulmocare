@@ -1,8 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { services, money } from "@/modules/services/catalog";
-const individualServices = services.filter((item) => item.cents !== null);
+import { money, type ServiceOption } from "@/modules/services/catalog";
 import { estimateTravel } from "./estimate";
 import { simulatedRoute } from "./simulation";
 import { localAppointmentToIso } from "./validation";
@@ -17,7 +16,14 @@ function asPoint(value: PointFieldsValue): GeoPoint {
   return { latitude: Number(value.latitude), longitude: Number(value.longitude) };
 }
 
-export function TravelCalculator({ liveEnabled }: { liveEnabled: boolean }) {
+export function TravelCalculator({
+  liveEnabled,
+  services,
+}: {
+  liveEnabled: boolean;
+  services: ServiceOption[];
+}) {
+  const individualServices = services.filter((item) => item.minutes !== null);
   const [origin, setOrigin] = useState(emptyPoint);
   const [destination, setDestination] = useState(emptyPoint);
   const [appointment, setAppointment] = useState("");
@@ -29,7 +35,7 @@ export function TravelCalculator({ liveEnabled }: { liveEnabled: boolean }) {
   const [busy, setBusy] = useState(false);
   const revision = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
-  const service = individualServices.find((item) => item.id === serviceId)!;
+  const service = individualServices.find((item) => item.id === serviceId) ?? individualServices[0];
 
   function invalidate() {
     revision.current++;
@@ -199,7 +205,7 @@ export function TravelCalculator({ liveEnabled }: { liveEnabled: boolean }) {
           {busy ? "Calculando ruta y salida…" : "Calcular recargo de traslado"}
         </button>
       </form>
-      {result && <QuoteResult estimate={result} serviceCents={service.cents} />}
+      {result && <QuoteResult estimate={result} serviceCents={service?.cents ?? null} />}
     </div>
   );
 }

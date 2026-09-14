@@ -14,6 +14,9 @@ export async function runChecks(db, config) {
     try {
       await connection.query(`SET LOCAL ROLE ${role}`);
       await connection.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [user ?? ""]);
+      await connection.query("SELECT set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify(user ? { sub: user } : {}),
+      ]);
       const result = await connection.query(sql, values);
       await connection.query("COMMIT");
       return result;
@@ -49,6 +52,36 @@ export async function runChecks(db, config) {
       });
     return { auth, profile: p.id };
   }
+  await check(
+    "identity access repair restores profile lookup without exposing Auth accounts",
+    async () => {
+      const user = randomUUID();
+      await db.query("REVOKE USAGE ON SCHEMA auth FROM pulmocare_executor");
+      // The repaired RPC must work even when the executor cannot use the Auth schema.
+      assert.equal((await actor(user, "SELECT get_my_access() AS access")).rows[0].access, null);
+      const repair = await readFile("supabase/install/09-acceso-identidad.sql", "utf8");
+      await db.query(repair);
+      await db.query(repair);
+      assert.equal(
+        (
+          await db.query(
+            "SELECT has_schema_privilege('pulmocare_executor','auth','USAGE') AS allowed",
+          )
+        ).rows[0].allowed,
+        false,
+      );
+      assert.equal((await actor(user, "SELECT get_my_access() AS access")).rows[0].access, null);
+      await denied(() => actor(user, "SELECT * FROM auth.users"));
+      assert.equal(
+        (
+          await db.query(
+            "SELECT has_table_privilege('pulmocare_executor','auth.users','SELECT') AS allowed",
+          )
+        ).rows[0].allowed,
+        false,
+      );
+    },
+  );
   await check("43 application tables have RLS and no direct client writes", async () => {
     const { rows } = await db.query(`SELECT c.relname, c.relrowsecurity,
       has_table_privilege('authenticated', c.oid, 'INSERT,UPDATE,DELETE') AS writes
@@ -66,14 +99,20 @@ export async function runChecks(db, config) {
           WHERE a.grantee=0 AND a.privilege_type='EXECUTE'))`);
     assert.deepEqual(rows, []);
   });
-  await check("anonymous catalog exposes six services and no draft prices", async () => {
-    assert.equal((await actor(null, "SELECT id, name FROM services", [], db, "anon")).rowCount, 6);
-    assert.equal(
-      (await actor(null, "SELECT id FROM service_price_versions", [], db, "anon")).rowCount,
-      0,
-    );
-    await denied(() => actor(null, "SELECT * FROM patients", [], db, "anon"));
-  });
+  await check(
+    "anonymous catalog exposes individual services and three phases without draft prices",
+    async () => {
+      assert.equal(
+        (await actor(null, "SELECT id, name FROM services", [], db, "anon")).rowCount,
+        9,
+      );
+      assert.equal(
+        (await actor(null, "SELECT id FROM service_price_versions", [], db, "anon")).rowCount,
+        0,
+      );
+      await denied(() => actor(null, "SELECT * FROM patients", [], db, "anon"));
+    },
+  );
   await check("SQL bootstrap creates an admin without a patient and safely repeats", async () => {
     const sql = (await readFile("supabase/install/05-primer-administrador.sql", "utf8"))
       .replace(/^BEGIN;$/gm, "")
@@ -789,6 +828,218 @@ export async function runChecks(db, config) {
       );
       await denied(() =>
         actor(candidate.auth, "SELECT register_provider('TEST provider','Respiratory','TEST-123')"),
+      );
+    },
+  );
+  await check(
+    "service pricing protects history, permissions, revisions and package discounts",
+    async () => {
+      assert.equal(
+        (
+          await db.query(
+            "SELECT relrowsecurity FROM pg_class WHERE oid='private.nebulization_discount'::regclass",
+          )
+        ).rows[0].relrowsecurity,
+        true,
+      );
+      const admin = await identity("pricing admin", ["billing_admin"]);
+      const outsider = await identity("pricing outsider");
+      const target = (await db.query("SELECT id FROM services WHERE code='nebulization'")).rows[0]
+        .id;
+      await denied(() => actor(outsider.auth, "SELECT publish_service_price($1,1000)", [target]));
+      const prior = (await actor(admin.auth, "SELECT * FROM list_service_prices()")).rows.find(
+        (p) => p.service_id === target,
+      ).price_id;
+      const first = (
+        await actor(admin.auth, "SELECT publish_service_price($1,1000,$2) AS id", [target, prior])
+      ).rows[0].id;
+      const revision = (
+        await actor(null, "SELECT * FROM get_nebulization_discount()", [], db, "anon")
+      ).rows[0].revision;
+      await actor(admin.auth, "SELECT set_nebulization_discount(10,$1)", [revision]);
+      const offers = (await actor(null, "SELECT * FROM get_service_offers()", [], db, "anon")).rows;
+      assert.equal(Number(offers.find((p) => p.code === "nebulization-7-days").amount_cents), 6300);
+      await actor(admin.auth, "SELECT publish_service_price($1,1200,$2)", [target, first]);
+      await assert.rejects(
+        () => actor(admin.auth, "SELECT publish_service_price($1,1300,$2)", [target, first]),
+        (e) => e.code === "40001",
+      );
+      const history = (
+        await db.query("SELECT amount_cents,valid_until FROM service_price_versions WHERE id=$1", [
+          first,
+        ])
+      ).rows[0];
+      assert.equal(Number(history.amount_cents), 1000);
+      assert.ok(history.valid_until);
+      await invalid(() =>
+        db.query("UPDATE service_price_versions SET amount_cents=1 WHERE id=$1", [first]),
+      );
+      const phase = (await db.query("SELECT id FROM services WHERE code='rehab-active'")).rows[0]
+        .id;
+      await assert.rejects(
+        () => actor(admin.auth, "SELECT publish_service_price($1,5000)", [phase]),
+        (e) => e.code === "22023",
+      );
+      await actor(
+        admin.auth,
+        "SELECT publish_service_price($1,5000,NULL,'Evaluación y seguimiento acordados por etapa')",
+        [phase],
+      );
+    },
+  );
+  await check(
+    "authorized additional administrator preserves existing roles and audits once",
+    async () => {
+      const target = await identity("additional administrator", ["patient"]);
+      await db.query(
+        "UPDATE auth.users SET email='13.guzman@gmail.com',email_confirmed_at=now() WHERE id=$1",
+        [target.auth],
+      );
+      const existing = (
+        await db.query(
+          "SELECT id FROM role_assignments WHERE role='access_admin' AND revoked_at IS NULL ORDER BY id",
+        )
+      ).rows;
+      assert.ok(existing.length > 0);
+      const update = await readFile("supabase/install/10-habilitar-administrador.sql", "utf8");
+      await db.query(update);
+      await db.query(update);
+      const info = (await actor(target.auth, "SELECT get_my_access() AS info")).rows[0].info;
+      assert.deepEqual(info.roles.sort(), ["access_admin", "operations_admin", "patient"]);
+      assert.equal(
+        (
+          await db.query(
+            "SELECT count(*)::int AS n FROM audit_events WHERE action='authorized_admin_role_granted'",
+          )
+        ).rows[0].n,
+        2,
+      );
+      for (const role of existing)
+        assert.equal(
+          (await db.query("SELECT revoked_at FROM role_assignments WHERE id=$1", [role.id])).rows[0]
+            .revoked_at,
+          null,
+        );
+    },
+  );
+  await check(
+    "patient submission persists atomically, retries once and protects form and files",
+    async () => {
+      const owner = await identity("submission patient", ["patient"]);
+      const other = await identity("other submission patient", ["patient"]);
+      await insert("patients", { profile_id: owner.profile, full_name: "TEST patient" });
+      await insert("patients", { profile_id: other.profile, full_name: "TEST other" });
+      const payload = {
+        patient: "TEST patient",
+        phone: "+50370000000",
+        birthDate: "2000-01-01",
+        reason: "Asma",
+        alarm: "No",
+        prescription: "No",
+        symptoms: [],
+        history: [],
+        noSymptoms: true,
+        noHistory: true,
+        consent: true,
+        department: "San Salvador",
+        municipality: "San Salvador",
+        address: "TEST address",
+        reference: "TEST reference",
+        serviceId: "nebulization-7-days",
+        slot: new Date(Date.now() + 86400000).toISOString(),
+        payment: "Efectivo",
+        file: null,
+      };
+      const send = async (data, key = randomUUID()) =>
+        (await actor(owner.auth, "SELECT prepare_patient_request($1,$2) AS result", [data, key]))
+          .rows[0].result;
+      await assert.rejects(
+        () => send({ ...payload, consent: false }),
+        (e) => e.code === "22023",
+      );
+      await assert.rejects(
+        () => send({ ...payload, alarm: "Sí" }),
+        (e) => e.code === "22023",
+      );
+      await assert.rejects(
+        () => send({ ...payload, serviceId: "not-a-service" }),
+        (e) => e.code === "22023",
+      );
+      assert.equal(
+        (
+          await db.query("SELECT count(*)::int AS n FROM service_requests WHERE requested_by=$1", [
+            owner.profile,
+          ])
+        ).rows[0].n,
+        0,
+      );
+      const key = randomUUID();
+      const first = await send(payload, key);
+      assert.equal((await send(payload, key)).id, first.id);
+      await assert.rejects(
+        () => send({ ...payload, patient: "Changed" }, key),
+        (e) => e.code === "40001",
+      );
+      await actor(owner.auth, "SELECT finish_patient_request($1)", [first.id]);
+      await actor(owner.auth, "SELECT finish_patient_request($1)", [first.id]);
+      assert.equal(
+        (await actor(owner.auth, "SELECT * FROM list_portal_requests()")).rows.filter(
+          (r) => r.id === first.id,
+        ).length,
+        1,
+      );
+      assert.equal(
+        (await actor(other.auth, "SELECT * FROM list_portal_requests()")).rows.filter(
+          (r) => r.id === first.id,
+        ).length,
+        0,
+      );
+      await denied(() => actor(other.auth, "SELECT read_patient_submission($1)", [first.id]));
+      await denied(() => actor(other.auth, "SELECT finish_patient_request($1)", [first.id]));
+      const detail = (
+        await actor(ops.auth, "SELECT read_patient_submission($1) AS info", [first.id])
+      ).rows[0].info;
+      assert.equal(detail.details.input.phone, payload.phone);
+      assert.equal(detail.details.serviceCode, payload.serviceId);
+      assert.equal(detail.status, "submitted");
+      const withFile = await send({
+        ...payload,
+        prescription: "Sí",
+        file: { mime: "application/pdf", size: 5, hash: "a".repeat(64) },
+      });
+      await invalid(() => actor(owner.auth, "SELECT finish_patient_request($1)", [withFile.id]));
+      await actor(
+        owner.auth,
+        "INSERT INTO storage.objects(bucket_id,name) VALUES('prescriptions',$1)",
+        [withFile.path],
+      );
+      await actor(owner.auth, "SELECT finish_patient_request($1)", [withFile.id]);
+      const fileDetail = (
+        await actor(ops.auth, "SELECT read_patient_submission($1) AS info", [withFile.id])
+      ).rows[0].info;
+      await denied(() =>
+        actor(other.auth, "SELECT get_submission_file($1)", [fileDetail.prescriptionId]),
+      );
+      assert.equal(
+        (
+          await actor(ops.auth, "SELECT get_submission_file($1) AS path", [
+            fileDetail.prescriptionId,
+          ])
+        ).rows[0].path,
+        withFile.path,
+      );
+      const candidate = await identity("profile candidate");
+      const professional = (
+        await actor(
+          candidate.auth,
+          "SELECT register_provider('TEST','Respiratory','TEST-321') AS id",
+        )
+      ).rows[0].id;
+      await denied(() => actor(other.auth, "SELECT read_provider_profile($1)", [professional]));
+      assert.equal(
+        (await actor(access.auth, "SELECT read_provider_profile($1) AS info", [professional]))
+          .rows[0].info.name,
+        "TEST",
       );
     },
   );

@@ -3,6 +3,7 @@ import { requirePortal } from "./server";
 import { createSupabaseServerClient } from "@/integrations/supabase/server";
 import { ProviderReview } from "./forms";
 import { ProviderDocuments } from "./provider-documents";
+import { TherapistProfile, type ProviderProfile } from "@/modules/administration/portal-details";
 const labels: Record<string, string> = {
   draft: "Borrador",
   submitted: "Enviada",
@@ -23,28 +24,29 @@ const labels: Record<string, string> = {
   suspended: "Suspendido",
 };
 const statusLabel = (s: string) => labels[s] ?? "Estado por confirmar";
-export async function PatientDashboard() {
-  const account = await requirePortal("patient");
+export async function PatientDashboard({ preview = false }: { preview?: boolean } = {}) {
+  const account = await requirePortal(preview ? "admin" : "patient");
   const client = await createSupabaseServerClient();
   const [requests, appointments] = await Promise.all([
-    client
-      .from("service_requests")
-      .select("id,status,submitted_at")
-      .order("submitted_at", { ascending: false, nullsFirst: false })
-      .limit(50),
-    client
-      .from("appointments")
-      .select("id,starts_at,status")
-      .order("starts_at", { ascending: false })
-      .limit(50),
+    preview ? Promise.resolve({ data: [], error: null }) : client.rpc("list_portal_requests"),
+    preview
+      ? Promise.resolve({ data: [], error: null })
+      : client
+          .from("appointments")
+          .select("id,starts_at,status")
+          .order("starts_at", { ascending: false })
+          .limit(50),
   ]);
   return (
     <div className="inner-page">
       <p className="eyebrow">ESPACIO DEL PACIENTE</p>
-      <h1>Hola, {account.access?.name}</h1>
+      <h1>{preview ? "Tu espacio como paciente" : `Hola, ${account.access?.name}`}</h1>
       <p>Tus solicitudes y citas, incluyendo los registros que tengas autorizados como cuidador.</p>
-      <Link className="button secondary" href="/">
-        Ver servicios
+      <Link
+        className="button primary"
+        href={preview ? "/admin/vistas/paciente/solicitar" : "/solicitar"}
+      >
+        Solicitar un servicio
       </Link>
       <div className="portal-grid">
         <section className="account-card">
@@ -56,8 +58,11 @@ export async function PatientDashboard() {
           ) : (
             requests.data.map((r) => (
               <article className="request-item" key={r.id}>
-                <strong>Solicitud {r.id.slice(0, 8)}</strong>
+                <strong>
+                  {r.service_name} · {r.id.slice(0, 8)}
+                </strong>
                 <p>{statusLabel(r.status)}</p>
+                <Link href={`/mis-citas/${r.id}`}>Ver solicitud y formulario enviado</Link>
               </article>
             ))
           )}
@@ -82,61 +87,27 @@ export async function PatientDashboard() {
           )}
         </section>
       </div>
-      <p className="notice">
-        El formulario de solicitud continúa en demostración. Sus datos de prueba no se guardan como
-        solicitudes reales.
+      <p>
+        Las solicitudes enviadas quedan guardadas y disponibles para que el equipo coordine tu
+        atención.
       </p>
     </div>
   );
 }
 export async function ProviderDashboard() {
-  const account = await requirePortal("provider");
+  await requirePortal("provider");
   const client = await createSupabaseServerClient();
-  const { data, error } = await client.rpc("list_my_assignments");
-  const verified = account.access?.professional_status === "verified";
+  const { data, error } = await client.rpc("read_provider_profile");
   return (
     <div className="inner-page">
-      <p className="eyebrow">ESPACIO DEL PRESTADOR</p>
-      <h1>Hola, {account.access?.name}</h1>
-      <p>Tu acreditación y tus asignaciones de atención.</p>
-      <div className="portal-grid">
-        <section className="account-card">
-          <h2>Mi acreditación</h2>
-          <strong>{statusLabel(account.access?.professional_status ?? "pending")}</strong>
-          <p>
-            {verified
-              ? "Tu perfil está verificado. Las asignaciones dependen de tus competencias y disponibilidad."
-              : "La administración debe verificar tu registro profesional antes de habilitar la atención de pacientes."}
-          </p>
-        </section>
-        <section className="account-card">
-          <h2>Planificación</h2>
-          <p>Consulta una estimación de traslado para preparar tus visitas.</p>
-          {verified && (
-            <Link className="button secondary" href="/equipo/traslado">
-              Calcular traslado
-            </Link>
-          )}
-        </section>
-      </div>
-      <section className="account-card">
-        <h2>Mis asignaciones</h2>
-        {error ? (
-          <p role="alert">No pudimos consultar tus asignaciones.</p>
-        ) : !data?.length ? (
-          <p>No tienes asignaciones activas para mostrar.</p>
-        ) : (
-          data.map((r) => (
-            <article className="request-item" key={`${r.id}-${r.purpose}`}>
-              <strong>Solicitud {r.id.slice(0, 8)}</strong>
-              <p>
-                {r.purpose === "review" ? "Revisión clínica" : "Atención asignada"} ·{" "}
-                {statusLabel(r.status)}
-              </p>
-            </article>
-          ))
-        )}
-      </section>
+      {error || !data ? (
+        <p className="notice">No pudimos consultar tu perfil.</p>
+      ) : (
+        <>
+          <TherapistProfile profile={data as unknown as ProviderProfile} />
+          <ProviderDocuments />
+        </>
+      )}
     </div>
   );
 }
@@ -146,15 +117,26 @@ export async function AdministrationDashboard() {
   const roles = account.access?.roles ?? [];
   const [registrations, requests] = await Promise.all([
     roles.includes("access_admin") ? client.rpc("list_provider_registrations") : null,
-    roles.includes("operations_admin")
-      ? client.rpc("list_operations_requests", { page_size: 50 })
-      : null,
+    roles.includes("operations_admin") ? client.rpc("list_portal_requests") : null,
   ]);
   return (
     <div className="inner-page">
       <p className="eyebrow">ESPACIO DE ADMINISTRACIÓN</p>
       <h1>Hola, {account.access?.name}</h1>
       <p>Las herramientas disponibles corresponden a los permisos de tu cuenta.</p>
+      <div className="button-row">
+        <Link className="button secondary" href="/admin/vistas/paciente">
+          Ver portal y formularios del paciente
+        </Link>
+        <Link className="button secondary" href="/admin/vistas/terapeuta">
+          Ver portal del terapeuta
+        </Link>
+      </div>
+      {roles.some((r) => ["operations_admin", "billing_admin"].includes(r)) && (
+        <Link className="button primary" href="/admin/precios">
+          Administrar precios y descuentos
+        </Link>
+      )}
       <div className="portal-grid">
         {roles.includes("operations_admin") && (
           <section className="account-card">
@@ -200,6 +182,11 @@ export async function AdministrationDashboard() {
                     {p.specialty} · Registro: {p.registration_ref}
                   </p>
                   <strong>{statusLabel(p.verification_status)}</strong>
+                  <p>
+                    <Link href={`/admin/prestadores/${p.id}`}>
+                      Abrir perfil completo del terapeuta
+                    </Link>
+                  </p>
                   <ProviderDocuments target={p.id} />
                   <ProviderReview id={p.id} status={p.verification_status} />
                 </article>
@@ -218,8 +205,13 @@ export async function AdministrationDashboard() {
           ) : (
             requests.data.map((r) => (
               <article className="request-item" key={r.id}>
-                <strong>Solicitud {r.id.slice(0, 8)}</strong>
+                <strong>
+                  {r.patient_name} ? {r.service_name}
+                </strong>
                 <p>{statusLabel(r.status)}</p>
+                <Link href={`/admin/solicitudes/${r.id}`}>
+                  Abrir formulario y detalle de la solicitud
+                </Link>
               </article>
             ))
           )}

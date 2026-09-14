@@ -42,6 +42,55 @@ Las páginas y acciones verifican identidad y permisos en el servidor; la base d
 
 ## Alcance y comprobación
 
+### Error al consultar perfiles después de ingresar
+
+Se reprodujo en el proyecto remoto `get_my_access()` con una cuenta temporal:
+`42501: permission denied for schema auth`. La contraseña y la sesión funcionan;
+el ejecutor de las funciones no puede resolver la identidad de Supabase.
+
+Ejecutar la versión corregida de `supabase/install/09-acceso-identidad.sql` como
+`postgres`. El primer intento de conceder acceso a `auth` fue rechazado por el
+proyecto remoto y revertido. La corrección lee el identificador de la sesión que
+PostgREST ya verificó (`request.jwt.claims.sub`), dentro del esquema privado de
+Pulmocare. Adapta cinco funciones conservando sus permisos y validaciones, sin
+dar acceso a `auth.users` ni cambiar contraseñas o roles de personas. El archivo
+muestra el estado y los roles de la cuenta administradora designada. Puede
+repetirse. Después, recargar `/cuenta`.
+
+Referencia: [contexto de la solicitud en PostgREST](https://docs.postgrest.org/en/stable/references/transactions.html).
+
+Si la cuenta aún no tiene perfil administrativo, revisar el resultado antes de
+aplicar `05-primer-administrador.sql` según el procedimiento de activación.
+
+Si ese archivo devuelve `Access administrator already initialized`, existe una
+asignación administrativa previa y no corresponde repetir la inicialización.
+Para la cuenta expresamente autorizada `13.guzman@gmail.com`, ejecutar
+`supabase/install/10-habilitar-administrador.sql` como `postgres`. Exige correo
+confirmado y perfil activo; añade `access_admin` y `operations_admin`, registra
+la asignación y conserva tanto los administradores existentes como el rol de
+paciente. Una segunda ejecución no duplica roles ni eventos de auditoría.
+
+### Recuperación de contraseña
+
+El enlace «Olvidé mi contraseña» abre `/recuperar`. El usuario solicita su correo;
+Supabase verifica el enlace con PKCE en `/auth/recovery` y permite elegir la nueva
+contraseña en `/nueva-clave`. Debe abrir el correo en el navegador donde lo solicitó.
+Al guardar se cierran las sesiones y se vuelve a ingresar.
+
+Configurar en Authentication → URL Configuration:
+
+- Site URL: `https://pulmocare-alpha.vercel.app`
+- Redirect URLs: añadir `https://pulmocare-alpha.vercel.app/auth/recovery`
+
+Con `SUPABASE_ACCESS_TOKEN` disponible localmente, `node scripts/configure-supabase-auth.mjs`
+aplica estos dos ajustes y conserva las demás redirecciones autorizadas. El token de
+administración no se incluye en Vercel ni en el repositorio.
+
+Se comprobó el acceso y cambio de contraseña en producción con cuentas temporales
+eliminadas después de probar; se rechazaron solicitudes anónimas, de otro origen,
+contraseñas no coincidentes y enlaces inválidos. El envío y apertura del correo
+siguen pendientes de verificar con la configuración de redirección corregida.
+
 Los paneles muestran registros reales o estados vacíos. El formulario `/solicitar` sigue siendo una demostración: no crea solicitudes clínicas reales. La interfaz de facturación y la captura de encuentros clínicos no forman parte de esta implementación de acceso.
 
 Comprobar en producción con cuentas de prueba: registro y confirmación por correo, acceso como paciente, prestador pendiente, aprobación desde un administrador, suspensión, intento de abrir `/admin` como paciente y cierre de sesión. La prueba local PostgreSQL simula los contratos de Auth/Storage; no sustituye la prueba de envío de correo ni de cookies en el dominio de Vercel.

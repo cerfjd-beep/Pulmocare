@@ -1,10 +1,18 @@
-import { services, money, quote, paymentMethods } from "@/modules/services/catalog";
+import { money, quote, paymentMethods, type ServiceOption } from "@/modules/services/catalog";
 import type { IntakeData } from "./model";
 import type { UpdateIntake } from "./clinical-step";
 
-export function ScheduleStep({ data, update }: { data: IntakeData; update: UpdateIntake }) {
+export function ScheduleStep({
+  data,
+  update,
+  services,
+}: {
+  data: IntakeData;
+  update: UpdateIntake;
+  services: ServiceOption[];
+}) {
   const selected = services.find((item) => item.id === data.serviceId) ?? services[0];
-  const total = quote(selected.cents, data.kilometers);
+  const total = quote(selected.cents, data.kilometers, selected.minutes === null ? null : 1);
   return (
     <div className="stack">
       <div>
@@ -23,7 +31,7 @@ export function ScheduleStep({ data, update }: { data: IntakeData; update: Updat
         </select>
       </label>
       <p>{selected.description}</p>
-      {selected.cents === null && (
+      {selected.minutes === null && (
         <p className="notice">
           El horario seleccionado es una preferencia para iniciar el programa. Las visitas se
           coordinarán después de la revisión; el total y los traslados del paquete se confirmarán
@@ -68,7 +76,7 @@ export function ScheduleStep({ data, update }: { data: IntakeData; update: Updat
       <div className="price-breakdown">
         <div>
           <span>
-            {selected.minutes === null ? "Paquete completo" : `Servicio · ${selected.minutes} min`}
+            {selected.minutes === null ? "Servicio o etapa" : `Servicio · ${selected.minutes} min`}
           </span>
           <strong>{money(total.service)}</strong>
         </div>

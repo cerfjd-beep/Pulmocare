@@ -16,9 +16,9 @@ import {
   Droplets,
   MoveUpRight,
 } from "lucide-react";
-import { services, servicePackages, money } from "@/modules/services/catalog";
+import { services, rehabilitationStages, money } from "@/modules/services/catalog";
 import { BusinessForm } from "@/modules/business/form";
-import { getSupabaseCatalog } from "../integrations/supabase/catalog";
+import { getSupabaseCatalog, displayServices } from "../integrations/supabase/catalog";
 
 const icons = [Stethoscope, Wind, Activity, Droplets, Heart, BookOpen];
 
@@ -26,25 +26,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const catalog = await getSupabaseCatalog();
-  const listedServices =
-    catalog.status === "ready"
-      ? [
-          ...catalog.services.map((service) => ({
-            id: service.code,
-            name: ["nebulization", "rehab"].includes(service.code)
-              ? `${service.name} · sesión individual`
-              : service.name,
-            description: service.description,
-            minutes: service.durationMinutes,
-            cents: service.amountCents,
-          })),
-          ...servicePackages.filter((pack) =>
-            catalog.services.some((service) => service.code === pack.baseService),
-          ),
-        ]
-      : catalog.status === "not_configured"
-        ? services
-        : [];
+  const listedServices = displayServices(catalog);
   return (
     <div className="home-page">
       <div className="page-heading">
@@ -191,6 +173,26 @@ export default async function Home() {
         </p>
       </section>
 
+      <section className="account-card">
+        <h2>Rehabilitación pulmonar por etapas</h2>
+        <p>
+          Sin un número cerrado de sesiones. Antes de iniciar cada etapa se acuerdan su alcance,
+          período de atención, precio y condiciones de continuidad. La evolución clínica determina
+          el siguiente paso.
+        </p>
+        <div className="portal-grid">
+          {rehabilitationStages.map((stage) => (
+            <article key={stage.name}>
+              <h3>{stage.name}</h3>
+              <p>{stage.description}</p>
+            </article>
+          ))}
+        </div>
+        <p>
+          La reevaluación no genera un cobro automático. Una nueva etapa requiere indicación
+          profesional, cotización y aceptación. Puedes seguir solicitando sesiones individuales.
+        </p>
+      </section>
       <section className="steps-section">
         <div>
           <p className="eyebrow">SENCILLO, DE PRINCIPIO A FIN</p>

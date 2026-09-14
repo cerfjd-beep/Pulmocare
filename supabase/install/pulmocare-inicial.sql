@@ -5391,6 +5391,708 @@ REVOKE pulmocare_executor FROM postgres;
 NOTIFY pgrst,'reload schema';
 $migration_source$]);
 
+-- 20260913000028_service_pricing.sql
+-- SHA256 a7855d2fec3554a6b7ff852e36d3e612bddb03ed77e181eda3aad27779ba2d38
+GRANT pulmocare_executor TO postgres;
+GRANT CREATE ON SCHEMA public,private TO pulmocare_executor;
+ALTER TABLE public.services ADD COLUMN billing_unit text NOT NULL DEFAULT 'session' CHECK(billing_unit IN ('session','phase'));
+ALTER TABLE public.services ALTER COLUMN duration_minutes DROP NOT NULL;
+ALTER TABLE public.service_price_versions ADD COLUMN scope text NOT NULL DEFAULT '';
+INSERT INTO public.services(code,name,description,duration_minutes,billing_unit) VALUES
+ ('rehab-assessment','Rehabilitación · evaluación y plan','Evaluación individual y definición de objetivos y plan de atención.',NULL,'phase'),
+ ('rehab-active','Rehabilitación · intervención y reevaluación','Etapa adaptable a la evolución. La reevaluación determina continuidad, ajustes, pausa o alta.',NULL,'phase'),
+ ('rehab-maintenance','Rehabilitación · consolidación y mantenimiento','Consolidación y seguimiento cuando estén indicados. No se activa automáticamente.',NULL,'phase');
+CREATE TABLE private.nebulization_discount (
+ singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+ percent numeric(5,2) NOT NULL CHECK(percent BETWEEN 0 AND 100),
+ revision uuid NOT NULL DEFAULT gen_random_uuid(),
+ updated_by uuid REFERENCES public.profiles(id), updated_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO private.nebulization_discount(singleton,percent) VALUES(true,0);
+REVOKE ALL ON private.nebulization_discount FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT,UPDATE ON private.nebulization_discount TO pulmocare_executor;
+
+-- Only validity may be closed. Prices already used by quotes retain their original amounts.
+CREATE FUNCTION private.guard_price_version() RETURNS trigger
+LANGUAGE plpgsql SET search_path='' AS $$
+BEGIN
+ IF OLD.status<>'draft' THEN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'Published price is immutable' USING ERRCODE='23514'; END IF;
+  IF OLD.valid_until IS NOT NULL OR NEW.valid_until IS DISTINCT FROM statement_timestamp()
+   OR NEW.valid_until<=OLD.valid_from
+   OR (to_jsonb(NEW)-ARRAY['valid_until','updated_at','updated_by']) IS DISTINCT FROM
+      (to_jsonb(OLD)-ARRAY['valid_until','updated_at','updated_by']) THEN
+   RAISE EXCEPTION 'Published price is immutable' USING ERRCODE='23514';
+  END IF;
+ END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+ RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.guard_price_version() FROM PUBLIC;
+DROP TRIGGER history ON public.service_price_versions;
+CREATE TRIGGER history BEFORE UPDATE OR DELETE ON public.service_price_versions
+FOR EACH ROW EXECUTE FUNCTION private.guard_price_version();
+
+CREATE FUNCTION public.list_service_prices() RETURNS TABLE(
+ service_id uuid,code text,name text,billing_unit text,amount_cents bigint,price_id uuid,scope text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+ IF NOT (private.has_role('operations_admin') OR private.has_role('billing_admin')) THEN
+  RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+ RETURN QUERY SELECT s.id,s.code,s.name,s.billing_unit,p.amount_cents,p.id,p.scope
+ FROM public.services s LEFT JOIN public.service_price_versions p ON p.service_id=s.id AND p.status='published'
+ AND p.valid_from<=now() AND (p.valid_until IS NULL OR p.valid_until>now()) WHERE s.active ORDER BY s.code;
+END;
+$$;
+CREATE FUNCTION public.publish_service_price(target uuid,amount bigint,expected uuid DEFAULT NULL,price_scope text DEFAULT '')
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE actor uuid:=private.current_profile(); previous uuid; result uuid; unit text;
+BEGIN
+ IF NOT (private.has_role('operations_admin') OR private.has_role('billing_admin')) THEN
+  RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+ IF amount IS NULL OR amount NOT BETWEEN 0 AND 100000000 OR price_scope IS NULL OR length(price_scope)>2000 THEN
+  RAISE EXCEPTION 'Invalid price' USING ERRCODE='22023'; END IF;
+ SELECT billing_unit INTO unit FROM public.services WHERE id=target AND active FOR UPDATE;
+ IF unit IS NULL OR (unit='phase' AND length(trim(price_scope))<10) THEN
+  RAISE EXCEPTION 'Define phase scope before publishing' USING ERRCODE='22023'; END IF;
+ SELECT id INTO previous FROM public.service_price_versions WHERE service_id=target AND status='published'
+ AND valid_from<=statement_timestamp() AND (valid_until IS NULL OR valid_until>statement_timestamp());
+ IF previous IS DISTINCT FROM expected THEN RAISE EXCEPTION 'Price changed; reload' USING ERRCODE='40001'; END IF;
+ UPDATE public.service_price_versions SET valid_until=statement_timestamp() WHERE id=previous;
+ INSERT INTO public.service_price_versions(service_id,amount_cents,currency,valid_from,approved_by,approved_at,status,scope)
+ VALUES(target,amount,'USD',statement_timestamp(),actor,statement_timestamp(),'published',trim(price_scope)) RETURNING id INTO result;
+ PERFORM private.log_event('service_price_published','service_price_versions',result);
+ RETURN result;
+END;
+$$;
+CREATE FUNCTION public.get_nebulization_discount() RETURNS TABLE(percent numeric,revision uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+ SELECT percent,revision FROM private.nebulization_discount;
+$$;
+CREATE FUNCTION public.set_nebulization_discount(discount numeric,expected uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE previous uuid; next_revision uuid:=gen_random_uuid();
+BEGIN
+ IF NOT (private.has_role('operations_admin') OR private.has_role('billing_admin')) THEN
+  RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+ IF discount IS NULL OR discount NOT BETWEEN 0 AND 100 OR discount<>round(discount,2) THEN
+  RAISE EXCEPTION 'Invalid discount' USING ERRCODE='22023'; END IF;
+ SELECT revision INTO previous FROM private.nebulization_discount FOR UPDATE;
+ IF previous IS DISTINCT FROM expected THEN RAISE EXCEPTION 'Discount changed; reload' USING ERRCODE='40001'; END IF;
+ UPDATE private.nebulization_discount SET percent=discount,revision=next_revision,updated_by=private.current_profile(),updated_at=now();
+ PERFORM private.log_event('nebulization_discount_changed','pricing',next_revision);
+END;
+$$;
+CREATE FUNCTION public.get_service_offers() RETURNS TABLE(
+ id uuid,code text,name text,description text,duration_minutes integer,billing_unit text,amount_cents bigint,scope text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+ SELECT s.id,s.code,s.name,s.description,s.duration_minutes,s.billing_unit,p.amount_cents,p.scope
+ FROM public.services s LEFT JOIN public.service_price_versions p ON p.service_id=s.id AND p.status='published'
+ AND p.valid_from<=now() AND (p.valid_until IS NULL OR p.valid_until>now()) WHERE s.active
+ UNION ALL
+ SELECT s.id,'nebulization-7-days','Nebulizaciones · tratamiento de 7 días',
+ '7 sesiones: una diaria durante 7 días, según indicación profesional. Traslados aparte.',NULL,'package',
+ round(p.amount_cents::numeric*7*(100-d.percent)/100)::bigint,
+ 'Precio individual × 7. Descuento: '||d.percent::text||'%. No incluye traslados.'
+ FROM public.services s CROSS JOIN private.nebulization_discount d
+ LEFT JOIN public.service_price_versions p ON p.service_id=s.id AND p.status='published'
+ AND p.valid_from<=now() AND (p.valid_until IS NULL OR p.valid_until>now())
+ WHERE s.code='nebulization' AND s.active;
+$$;
+ALTER FUNCTION public.list_service_prices() OWNER TO pulmocare_executor;
+ALTER FUNCTION public.publish_service_price(uuid,bigint,uuid,text) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.get_nebulization_discount() OWNER TO pulmocare_executor;
+ALTER FUNCTION public.set_nebulization_discount(numeric,uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.get_service_offers() OWNER TO pulmocare_executor;
+REVOKE ALL ON FUNCTION public.list_service_prices(),public.publish_service_price(uuid,bigint,uuid,text),
+ public.get_nebulization_discount(),public.set_nebulization_discount(numeric,uuid),public.get_service_offers() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.list_service_prices(),public.publish_service_price(uuid,bigint,uuid,text),public.set_nebulization_discount(numeric,uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_nebulization_discount(),public.get_service_offers() TO anon,authenticated;
+REVOKE CREATE ON SCHEMA public,private FROM pulmocare_executor;
+REVOKE pulmocare_executor FROM postgres;
+NOTIFY pgrst,'reload schema';
+
+INSERT INTO supabase_migrations.schema_migrations(version, name, statements)
+VALUES ('20260913000028', 'service_pricing', ARRAY[$migration_source$GRANT pulmocare_executor TO postgres;
+GRANT CREATE ON SCHEMA public,private TO pulmocare_executor;
+ALTER TABLE public.services ADD COLUMN billing_unit text NOT NULL DEFAULT 'session' CHECK(billing_unit IN ('session','phase'));
+ALTER TABLE public.services ALTER COLUMN duration_minutes DROP NOT NULL;
+ALTER TABLE public.service_price_versions ADD COLUMN scope text NOT NULL DEFAULT '';
+INSERT INTO public.services(code,name,description,duration_minutes,billing_unit) VALUES
+ ('rehab-assessment','Rehabilitación · evaluación y plan','Evaluación individual y definición de objetivos y plan de atención.',NULL,'phase'),
+ ('rehab-active','Rehabilitación · intervención y reevaluación','Etapa adaptable a la evolución. La reevaluación determina continuidad, ajustes, pausa o alta.',NULL,'phase'),
+ ('rehab-maintenance','Rehabilitación · consolidación y mantenimiento','Consolidación y seguimiento cuando estén indicados. No se activa automáticamente.',NULL,'phase');
+CREATE TABLE private.nebulization_discount (
+ singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+ percent numeric(5,2) NOT NULL CHECK(percent BETWEEN 0 AND 100),
+ revision uuid NOT NULL DEFAULT gen_random_uuid(),
+ updated_by uuid REFERENCES public.profiles(id), updated_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO private.nebulization_discount(singleton,percent) VALUES(true,0);
+REVOKE ALL ON private.nebulization_discount FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT,UPDATE ON private.nebulization_discount TO pulmocare_executor;
+
+-- Only validity may be closed. Prices already used by quotes retain their original amounts.
+CREATE FUNCTION private.guard_price_version() RETURNS trigger
+LANGUAGE plpgsql SET search_path='' AS $$
+BEGIN
+ IF OLD.status<>'draft' THEN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'Published price is immutable' USING ERRCODE='23514'; END IF;
+  IF OLD.valid_until IS NOT NULL OR NEW.valid_until IS DISTINCT FROM statement_timestamp()
+   OR NEW.valid_until<=OLD.valid_from
+   OR (to_jsonb(NEW)-ARRAY['valid_until','updated_at','updated_by']) IS DISTINCT FROM
+      (to_jsonb(OLD)-ARRAY['valid_until','updated_at','updated_by']) THEN
+   RAISE EXCEPTION 'Published price is immutable' USING ERRCODE='23514';
+  END IF;
+ END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+ RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION private.guard_price_version() FROM PUBLIC;
+DROP TRIGGER history ON public.service_price_versions;
+CREATE TRIGGER history BEFORE UPDATE OR DELETE ON public.service_price_versions
+FOR EACH ROW EXECUTE FUNCTION private.guard_price_version();
+
+CREATE FUNCTION public.list_service_prices() RETURNS TABLE(
+ service_id uuid,code text,name text,billing_unit text,amount_cents bigint,price_id uuid,scope text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+ IF NOT (private.has_role('operations_admin') OR private.has_role('billing_admin')) THEN
+  RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+ RETURN QUERY SELECT s.id,s.code,s.name,s.billing_unit,p.amount_cents,p.id,p.scope
+ FROM public.services s LEFT JOIN public.service_price_versions p ON p.service_id=s.id AND p.status='published'
+ AND p.valid_from<=now() AND (p.valid_until IS NULL OR p.valid_until>now()) WHERE s.active ORDER BY s.code;
+END;
+$$;
+CREATE FUNCTION public.publish_service_price(target uuid,amount bigint,expected uuid DEFAULT NULL,price_scope text DEFAULT '')
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE actor uuid:=private.current_profile(); previous uuid; result uuid; unit text;
+BEGIN
+ IF NOT (private.has_role('operations_admin') OR private.has_role('billing_admin')) THEN
+  RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+ IF amount IS NULL OR amount NOT BETWEEN 0 AND 100000000 OR price_scope IS NULL OR length(price_scope)>2000 THEN
+  RAISE EXCEPTION 'Invalid price' USING ERRCODE='22023'; END IF;
+ SELECT billing_unit INTO unit FROM public.services WHERE id=target AND active FOR UPDATE;
+ IF unit IS NULL OR (unit='phase' AND length(trim(price_scope))<10) THEN
+  RAISE EXCEPTION 'Define phase scope before publishing' USING ERRCODE='22023'; END IF;
+ SELECT id INTO previous FROM public.service_price_versions WHERE service_id=target AND status='published'
+ AND valid_from<=statement_timestamp() AND (valid_until IS NULL OR valid_until>statement_timestamp());
+ IF previous IS DISTINCT FROM expected THEN RAISE EXCEPTION 'Price changed; reload' USING ERRCODE='40001'; END IF;
+ UPDATE public.service_price_versions SET valid_until=statement_timestamp() WHERE id=previous;
+ INSERT INTO public.service_price_versions(service_id,amount_cents,currency,valid_from,approved_by,approved_at,status,scope)
+ VALUES(target,amount,'USD',statement_timestamp(),actor,statement_timestamp(),'published',trim(price_scope)) RETURNING id INTO result;
+ PERFORM private.log_event('service_price_published','service_price_versions',result);
+ RETURN result;
+END;
+$$;
+CREATE FUNCTION public.get_nebulization_discount() RETURNS TABLE(percent numeric,revision uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+ SELECT percent,revision FROM private.nebulization_discount;
+$$;
+CREATE FUNCTION public.set_nebulization_discount(discount numeric,expected uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE previous uuid; next_revision uuid:=gen_random_uuid();
+BEGIN
+ IF NOT (private.has_role('operations_admin') OR private.has_role('billing_admin')) THEN
+  RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+ IF discount IS NULL OR discount NOT BETWEEN 0 AND 100 OR discount<>round(discount,2) THEN
+  RAISE EXCEPTION 'Invalid discount' USING ERRCODE='22023'; END IF;
+ SELECT revision INTO previous FROM private.nebulization_discount FOR UPDATE;
+ IF previous IS DISTINCT FROM expected THEN RAISE EXCEPTION 'Discount changed; reload' USING ERRCODE='40001'; END IF;
+ UPDATE private.nebulization_discount SET percent=discount,revision=next_revision,updated_by=private.current_profile(),updated_at=now();
+ PERFORM private.log_event('nebulization_discount_changed','pricing',next_revision);
+END;
+$$;
+CREATE FUNCTION public.get_service_offers() RETURNS TABLE(
+ id uuid,code text,name text,description text,duration_minutes integer,billing_unit text,amount_cents bigint,scope text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+ SELECT s.id,s.code,s.name,s.description,s.duration_minutes,s.billing_unit,p.amount_cents,p.scope
+ FROM public.services s LEFT JOIN public.service_price_versions p ON p.service_id=s.id AND p.status='published'
+ AND p.valid_from<=now() AND (p.valid_until IS NULL OR p.valid_until>now()) WHERE s.active
+ UNION ALL
+ SELECT s.id,'nebulization-7-days','Nebulizaciones · tratamiento de 7 días',
+ '7 sesiones: una diaria durante 7 días, según indicación profesional. Traslados aparte.',NULL,'package',
+ round(p.amount_cents::numeric*7*(100-d.percent)/100)::bigint,
+ 'Precio individual × 7. Descuento: '||d.percent::text||'%. No incluye traslados.'
+ FROM public.services s CROSS JOIN private.nebulization_discount d
+ LEFT JOIN public.service_price_versions p ON p.service_id=s.id AND p.status='published'
+ AND p.valid_from<=now() AND (p.valid_until IS NULL OR p.valid_until>now())
+ WHERE s.code='nebulization' AND s.active;
+$$;
+ALTER FUNCTION public.list_service_prices() OWNER TO pulmocare_executor;
+ALTER FUNCTION public.publish_service_price(uuid,bigint,uuid,text) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.get_nebulization_discount() OWNER TO pulmocare_executor;
+ALTER FUNCTION public.set_nebulization_discount(numeric,uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.get_service_offers() OWNER TO pulmocare_executor;
+REVOKE ALL ON FUNCTION public.list_service_prices(),public.publish_service_price(uuid,bigint,uuid,text),
+ public.get_nebulization_discount(),public.set_nebulization_discount(numeric,uuid),public.get_service_offers() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.list_service_prices(),public.publish_service_price(uuid,bigint,uuid,text),public.set_nebulization_discount(numeric,uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_nebulization_discount(),public.get_service_offers() TO anon,authenticated;
+REVOKE CREATE ON SCHEMA public,private FROM pulmocare_executor;
+REVOKE pulmocare_executor FROM postgres;
+NOTIFY pgrst,'reload schema';
+$migration_source$]);
+
+-- 20260913000029_discount_access.sql
+-- SHA256 cf5cd52cf0809da91eee70b8e57cc8251e659a9144779746ee7a002c5701f44d
+-- Explicit access for the limited RPC owner, including installations with automatic RLS.
+ALTER TABLE private.nebulization_discount ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS executor_discount ON private.nebulization_discount;
+CREATE POLICY executor_discount ON private.nebulization_discount
+  TO pulmocare_executor USING (true) WITH CHECK (true);
+GRANT SELECT, UPDATE ON private.nebulization_discount TO pulmocare_executor;
+INSERT INTO private.nebulization_discount(singleton, percent)
+VALUES (true, 0) ON CONFLICT (singleton) DO NOTHING;
+NOTIFY pgrst, 'reload schema';
+
+INSERT INTO supabase_migrations.schema_migrations(version, name, statements)
+VALUES ('20260913000029', 'discount_access', ARRAY[$migration_source$-- Explicit access for the limited RPC owner, including installations with automatic RLS.
+ALTER TABLE private.nebulization_discount ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS executor_discount ON private.nebulization_discount;
+CREATE POLICY executor_discount ON private.nebulization_discount
+  TO pulmocare_executor USING (true) WITH CHECK (true);
+GRANT SELECT, UPDATE ON private.nebulization_discount TO pulmocare_executor;
+INSERT INTO private.nebulization_discount(singleton, percent)
+VALUES (true, 0) ON CONFLICT (singleton) DO NOTHING;
+NOTIFY pgrst, 'reload schema';
+$migration_source$]);
+
+-- 20260913000030_auth_identity_access.sql
+-- SHA256 9ae87267bab55c4891532990a429be6bd884910d232ee66986b44c093eb46e85
+-- Read the subject already verified and installed by PostgREST for this request.
+-- No permission on the managed auth schema or auth.users is required.
+GRANT pulmocare_executor TO postgres;
+GRANT CREATE ON SCHEMA private TO pulmocare_executor;
+CREATE OR REPLACE FUNCTION private.request_user_id() RETURNS uuid
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
+  SELECT coalesce(
+    nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', ''),
+    nullif(current_setting('request.jwt.claim.sub', true), '')
+  )::uuid;
+$$;
+ALTER FUNCTION private.request_user_id() OWNER TO pulmocare_executor;
+REVOKE ALL ON FUNCTION private.request_user_id() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION private.request_user_id() TO pulmocare_executor, postgres;
+
+-- Change only identity resolution in these five application functions.
+-- CREATE OR REPLACE retains their owners, grants and authorization checks.
+DO $repair$
+DECLARE signature text; target regprocedure; definition text;
+BEGIN
+  FOREACH signature IN ARRAY ARRAY[
+    'private.stamp()',
+    'private.current_profile()',
+    'public.register_patient(text,date)',
+    'public.get_my_access()',
+    'public.register_provider(text,text,text)'
+  ] LOOP
+    target := to_regprocedure(signature);
+    IF target IS NULL THEN
+      RAISE EXCEPTION 'Falta una función requerida: %', signature;
+    END IF;
+    definition := pg_get_functiondef(target);
+    IF position('auth.uid()' IN definition) > 0 THEN
+      EXECUTE replace(definition, 'auth.uid()', 'private.request_user_id()');
+    ELSIF position('private.request_user_id()' IN definition) = 0 THEN
+      RAISE EXCEPTION 'Definición inesperada; revisar antes de actualizar: %', signature;
+    END IF;
+  END LOOP;
+END;
+$repair$;
+REVOKE CREATE ON SCHEMA private FROM pulmocare_executor;
+REVOKE pulmocare_executor FROM postgres;
+NOTIFY pgrst, 'reload schema';
+
+INSERT INTO supabase_migrations.schema_migrations(version, name, statements)
+VALUES ('20260913000030', 'auth_identity_access', ARRAY[$migration_source$-- Read the subject already verified and installed by PostgREST for this request.
+-- No permission on the managed auth schema or auth.users is required.
+GRANT pulmocare_executor TO postgres;
+GRANT CREATE ON SCHEMA private TO pulmocare_executor;
+CREATE OR REPLACE FUNCTION private.request_user_id() RETURNS uuid
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
+  SELECT coalesce(
+    nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', ''),
+    nullif(current_setting('request.jwt.claim.sub', true), '')
+  )::uuid;
+$$;
+ALTER FUNCTION private.request_user_id() OWNER TO pulmocare_executor;
+REVOKE ALL ON FUNCTION private.request_user_id() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION private.request_user_id() TO pulmocare_executor, postgres;
+
+-- Change only identity resolution in these five application functions.
+-- CREATE OR REPLACE retains their owners, grants and authorization checks.
+DO $repair$
+DECLARE signature text; target regprocedure; definition text;
+BEGIN
+  FOREACH signature IN ARRAY ARRAY[
+    'private.stamp()',
+    'private.current_profile()',
+    'public.register_patient(text,date)',
+    'public.get_my_access()',
+    'public.register_provider(text,text,text)'
+  ] LOOP
+    target := to_regprocedure(signature);
+    IF target IS NULL THEN
+      RAISE EXCEPTION 'Falta una función requerida: %', signature;
+    END IF;
+    definition := pg_get_functiondef(target);
+    IF position('auth.uid()' IN definition) > 0 THEN
+      EXECUTE replace(definition, 'auth.uid()', 'private.request_user_id()');
+    ELSIF position('private.request_user_id()' IN definition) = 0 THEN
+      RAISE EXCEPTION 'Definición inesperada; revisar antes de actualizar: %', signature;
+    END IF;
+  END LOOP;
+END;
+$repair$;
+REVOKE CREATE ON SCHEMA private FROM pulmocare_executor;
+REVOKE pulmocare_executor FROM postgres;
+NOTIFY pgrst, 'reload schema';
+$migration_source$]);
+
+-- 20260913000031_patient_requests.sql
+-- SHA256 beafb369cf7f85e3f756fb4a01da1988e1044892d4b419152a7bb881c6db964e
+GRANT pulmocare_executor TO postgres;
+GRANT CREATE ON SCHEMA public, private TO pulmocare_executor;
+ALTER TABLE public.service_requests ADD COLUMN submission_key uuid;
+ALTER TABLE public.service_requests ADD COLUMN submission_details jsonb;
+CREATE UNIQUE INDEX request_submission_key ON public.service_requests(requested_by, submission_key);
+
+CREATE FUNCTION public.prepare_patient_request(payload jsonb, retry_key uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE actor uuid := private.current_profile(); patient uuid; request uuid; address uuid;
+  service uuid; offer record; doc uuid; path text; existing public.service_requests;
+  preferred timestamptz; born date; symptom_answer jsonb; history_answer jsonb;
+BEGIN
+  IF actor IS NULL OR NOT private.has_role('patient') THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  SELECT id INTO patient FROM public.patients WHERE profile_id=actor AND active;
+  IF patient IS NULL OR retry_key IS NULL OR payload IS NULL OR jsonb_typeof(payload)<>'object'
+    OR octet_length(payload::text)>20000 THEN RAISE EXCEPTION 'Invalid submission' USING ERRCODE='22023'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(actor::text || retry_key::text,0));
+  SELECT * INTO existing FROM public.service_requests WHERE requested_by=actor AND submission_key=retry_key;
+  IF FOUND THEN
+    IF existing.submission_details->'input' IS DISTINCT FROM payload THEN RAISE EXCEPTION 'Submission changed' USING ERRCODE='40001'; END IF;
+    RETURN jsonb_build_object('id',existing.id,'path',existing.submission_details->>'prescriptionPath','submitted',existing.status<>'draft');
+  END IF;
+  IF coalesce(payload->>'alarm','')<>'No' OR coalesce(payload->>'prescription','') NOT IN ('Sí','No')
+    OR coalesce(payload->>'reason','') NOT IN ('Dificultad respiratoria','Exceso de secreciones','Uso de oxígeno','Asma','EPOC','Neumonía','Postoperatorio','Traqueostomía','Ventilación mecánica','Otro')
+    OR coalesce(payload->'symptoms','[]'::jsonb) ? 'Dolor torácico'
+    OR coalesce(payload->>'consent','')<>'true'
+    OR length(trim(coalesce(payload->>'patient',''))) NOT BETWEEN 1 AND 100
+    OR coalesce(payload->>'phone','') !~ '^\+[1-9][0-9]{7,14}$'
+    OR length(trim(coalesce(payload->>'address',''))) NOT BETWEEN 1 AND 200
+    OR length(trim(coalesce(payload->>'municipality',''))) NOT BETWEEN 1 AND 100
+    OR length(trim(coalesce(payload->>'department',''))) NOT BETWEEN 1 AND 100
+    OR length(coalesce(payload->>'reference',''))>200
+    OR coalesce(payload->>'payment','') NOT IN ('Efectivo','Pago contra entrega','Tarjeta de crédito','Tarjeta de débito','Transferencia bancaria','Pago empresarial')
+    THEN RAISE EXCEPTION 'Incomplete or unsafe request' USING ERRCODE='22023'; END IF;
+  born := nullif(payload->>'birthDate','')::date;
+  preferred := nullif(payload->>'slot','')::timestamptz;
+  IF born IS NULL OR born>current_date OR born<current_date-interval '120 years'
+    OR preferred IS NULL OR preferred<=now() OR preferred>now()+interval '180 days' THEN
+    RAISE EXCEPTION 'Invalid dates' USING ERRCODE='22023'; END IF;
+  symptom_answer := jsonb_build_object('state',CASE WHEN coalesce((payload->>'noSymptoms')::boolean,false) THEN 'none' ELSE 'selected' END,'items',payload->'symptoms');
+  history_answer := jsonb_build_object('state',CASE WHEN coalesce((payload->>'noHistory')::boolean,false) THEN 'none' ELSE 'selected' END,'items',payload->'history');
+  IF NOT private.valid_answer(symptom_answer) OR NOT private.valid_answer(history_answer) THEN RAISE EXCEPTION 'Incomplete answers' USING ERRCODE='22023'; END IF;
+  SELECT * INTO offer FROM public.get_service_offers() WHERE code=payload->>'serviceId';
+  IF NOT FOUND THEN RAISE EXCEPTION 'Service unavailable' USING ERRCODE='22023'; END IF;
+  service := offer.id;
+  UPDATE public.patients SET full_name=trim(payload->>'patient'), phone=payload->>'phone', birth_date=born WHERE id=patient;
+  INSERT INTO public.addresses(patient_id,department_code,municipality_code,address_line,reference_notes)
+    VALUES(patient,payload->>'department',payload->>'municipality',payload->>'address',payload->>'reference') RETURNING id INTO address;
+  INSERT INTO public.service_requests(patient_id,requested_by,requested_service_id,address_id,payment_preference,preferred_at,submission_key)
+    VALUES(patient,actor,service,address,payload->>'payment',preferred,retry_key) RETURNING id INTO request;
+  INSERT INTO public.consents(patient_id,granted_by,purpose,policy_version,evidence_ref)
+    VALUES(patient,actor,'service_request','patient-request-v1',request::text);
+  INSERT INTO public.clinical_intakes(request_id,revision,reason,prescription_declared,symptoms,history,questionnaire_version,completed_at)
+    VALUES(request,1,payload->>'reason',payload->>'prescription'='Sí',symptom_answer,history_answer,'intake-v1',now());
+  IF payload->>'prescription'='Sí' THEN
+    IF coalesce(payload->'file'->>'mime','') NOT IN ('application/pdf','image/jpeg','image/png')
+      OR coalesce((payload->'file'->>'size')::bigint,0) NOT BETWEEN 1 AND 5242880
+      OR coalesce(payload->'file'->>'hash','') !~ '^[a-f0-9]{64}$' THEN
+      RAISE EXCEPTION 'Invalid prescription' USING ERRCODE='22023'; END IF;
+    path := actor::text || '/' || gen_random_uuid()::text || CASE payload->'file'->>'mime' WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' ELSE '.pdf' END;
+    INSERT INTO public.documents(owner_profile_id,patient_id,category,bucket_id,object_path,mime_type,size_bytes,checksum_sha256,uploaded_at)
+      VALUES(actor,patient,'prescription','prescriptions',path,payload->'file'->>'mime',(payload->'file'->>'size')::bigint,payload->'file'->>'hash',now()) RETURNING id INTO doc;
+    INSERT INTO public.prescriptions(request_id,patient_id,document_id) VALUES(request,patient,doc);
+  END IF;
+  UPDATE public.service_requests SET submission_details=jsonb_build_object('input',payload,'serviceName',offer.name,'serviceCode',offer.code,
+    'serviceCents',offer.amount_cents,'serviceScope',offer.scope,'prescriptionPath',path) WHERE id=request;
+  RETURN jsonb_build_object('id',request,'path',path,'submitted',false);
+END;
+$$;
+
+CREATE FUNCTION public.finish_patient_request(target uuid) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE r public.service_requests;
+BEGIN
+  SELECT * INTO r FROM public.service_requests WHERE id=target FOR UPDATE;
+  IF NOT FOUND OR r.requested_by IS DISTINCT FROM private.current_profile() THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  IF r.status<>'draft' THEN RETURN r.id; END IF;
+  IF r.submission_details IS NULL THEN RAISE EXCEPTION 'Invalid submission' USING ERRCODE='22023'; END IF;
+  IF r.submission_details->>'prescriptionPath' IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM storage.objects WHERE bucket_id='prescriptions' AND name=r.submission_details->>'prescriptionPath'
+  ) THEN RAISE EXCEPTION 'Prescription upload required' USING ERRCODE='23514'; END IF;
+  PERFORM public.submit_request(target);
+  RETURN target;
+END;
+$$;
+GRANT USAGE ON SCHEMA storage TO pulmocare_executor;
+GRANT SELECT ON storage.objects TO pulmocare_executor;
+CREATE POLICY executor_prescription_objects ON storage.objects FOR SELECT TO pulmocare_executor USING(bucket_id='prescriptions');
+
+CREATE FUNCTION public.list_portal_requests(page_number integer DEFAULT 0) RETURNS TABLE(id uuid,patient_id uuid,patient_name text,service_name text,status text,preferred_at timestamptz,submitted_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  IF private.current_profile() IS NULL THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  RETURN QUERY SELECT r.id,r.patient_id,p.full_name,coalesce(r.submission_details->>'serviceName',s.name),r.status,r.preferred_at,r.submitted_at
+    FROM public.service_requests r JOIN public.patients p ON p.id=r.patient_id LEFT JOIN public.services s ON s.id=r.requested_service_id
+    WHERE r.status<>'draft' AND (private.has_role('operations_admin') OR private.owns_patient(r.patient_id,'request_service'))
+    ORDER BY r.submitted_at DESC,r.id DESC LIMIT 50 OFFSET greatest(0,least(coalesce(page_number,0),10000))*50;
+END;
+$$;
+
+CREATE FUNCTION public.read_patient_submission(target uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE r public.service_requests; result jsonb;
+BEGIN
+  SELECT * INTO r FROM public.service_requests WHERE id=target;
+  IF NOT FOUND OR NOT (private.has_role('operations_admin') OR private.owns_patient(r.patient_id,'request_service')
+    OR private.assigned(target,'review') OR private.assigned(target,'treatment')) THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  SELECT jsonb_build_object('id',r.id,'status',r.status,'submittedAt',r.submitted_at,'preferredAt',r.preferred_at,'patientId',r.patient_id,
+    'patientName',p.full_name,'phone',p.phone,'birthDate',p.birth_date,'details',r.submission_details - 'prescriptionPath',
+    'prescriptionId',(SELECT pr.document_id FROM public.prescriptions pr WHERE pr.request_id=target LIMIT 1)) INTO result
+    FROM public.patients p WHERE p.id=r.patient_id;
+  PERFORM private.log_event('patient_submission_read','service_requests',target);
+  RETURN result;
+END;
+$$;
+
+CREATE FUNCTION private.can_read_submission_file(object_name text) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT EXISTS(SELECT 1 FROM public.documents d JOIN public.prescriptions p ON p.document_id=d.id
+    WHERE d.bucket_id='prescriptions' AND d.object_path=object_name AND d.scan_status<>'rejected'
+    AND (private.has_role('operations_admin') OR private.owns_patient(p.patient_id,'request_service')
+      OR private.assigned(p.request_id,'review') OR private.assigned(p.request_id,'treatment')));
+$$;
+CREATE FUNCTION public.get_submission_file(target uuid) RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE path text;
+BEGIN
+  SELECT object_path INTO path FROM public.documents WHERE id=target AND category='prescription';
+  IF path IS NULL OR NOT private.can_read_submission_file(path) THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  PERFORM private.log_event('patient_prescription_read','documents',target);
+  RETURN path;
+END;
+$$;
+CREATE POLICY patient_submission_download ON storage.objects FOR SELECT TO authenticated
+  USING(bucket_id='prescriptions' AND private.can_read_submission_file(name));
+
+CREATE FUNCTION public.read_provider_profile(target uuid DEFAULT NULL) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE result jsonb;
+BEGIN
+  IF private.current_profile() IS NULL OR (target IS NOT NULL AND NOT private.has_role('access_admin')) THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  SELECT jsonb_build_object('id',p.id,'name',p.display_name,'specialty',p.specialty,'registration',p.registration_ref,
+    'status',p.verification_status,'active',p.active,'createdAt',p.created_at,
+    'assignments',coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'status',r.status,'purpose',a.purpose))
+      FROM public.request_assignments a JOIN public.service_requests r ON r.id=a.request_id
+      WHERE a.professional_id=p.id AND a.revoked_at IS NULL),'[]'::jsonb)) INTO result
+    FROM public.professionals p WHERE (target IS NOT NULL AND p.id=target) OR (target IS NULL AND p.profile_id=private.current_profile());
+  IF result IS NULL THEN RAISE EXCEPTION 'Not found' USING ERRCODE='22023'; END IF;
+  PERFORM private.log_event('provider_profile_read','professionals',(result->>'id')::uuid);
+  RETURN result;
+END;
+$$;
+
+ALTER FUNCTION public.prepare_patient_request(jsonb,uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.finish_patient_request(uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.list_portal_requests(integer) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.read_patient_submission(uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION private.can_read_submission_file(text) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.get_submission_file(uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.read_provider_profile(uuid) OWNER TO pulmocare_executor;
+REVOKE ALL ON FUNCTION public.prepare_patient_request(jsonb,uuid),public.finish_patient_request(uuid),public.list_portal_requests(integer),
+  public.read_patient_submission(uuid),private.can_read_submission_file(text),public.get_submission_file(uuid),public.read_provider_profile(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.prepare_patient_request(jsonb,uuid),public.finish_patient_request(uuid),public.list_portal_requests(integer),
+  public.read_patient_submission(uuid),private.can_read_submission_file(text),public.get_submission_file(uuid),public.read_provider_profile(uuid) TO authenticated;
+REVOKE CREATE ON SCHEMA public,private FROM pulmocare_executor;
+REVOKE pulmocare_executor FROM postgres;
+NOTIFY pgrst,'reload schema';
+
+INSERT INTO supabase_migrations.schema_migrations(version, name, statements)
+VALUES ('20260913000031', 'patient_requests', ARRAY[$migration_source$GRANT pulmocare_executor TO postgres;
+GRANT CREATE ON SCHEMA public, private TO pulmocare_executor;
+ALTER TABLE public.service_requests ADD COLUMN submission_key uuid;
+ALTER TABLE public.service_requests ADD COLUMN submission_details jsonb;
+CREATE UNIQUE INDEX request_submission_key ON public.service_requests(requested_by, submission_key);
+
+CREATE FUNCTION public.prepare_patient_request(payload jsonb, retry_key uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE actor uuid := private.current_profile(); patient uuid; request uuid; address uuid;
+  service uuid; offer record; doc uuid; path text; existing public.service_requests;
+  preferred timestamptz; born date; symptom_answer jsonb; history_answer jsonb;
+BEGIN
+  IF actor IS NULL OR NOT private.has_role('patient') THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  SELECT id INTO patient FROM public.patients WHERE profile_id=actor AND active;
+  IF patient IS NULL OR retry_key IS NULL OR payload IS NULL OR jsonb_typeof(payload)<>'object'
+    OR octet_length(payload::text)>20000 THEN RAISE EXCEPTION 'Invalid submission' USING ERRCODE='22023'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(actor::text || retry_key::text,0));
+  SELECT * INTO existing FROM public.service_requests WHERE requested_by=actor AND submission_key=retry_key;
+  IF FOUND THEN
+    IF existing.submission_details->'input' IS DISTINCT FROM payload THEN RAISE EXCEPTION 'Submission changed' USING ERRCODE='40001'; END IF;
+    RETURN jsonb_build_object('id',existing.id,'path',existing.submission_details->>'prescriptionPath','submitted',existing.status<>'draft');
+  END IF;
+  IF coalesce(payload->>'alarm','')<>'No' OR coalesce(payload->>'prescription','') NOT IN ('Sí','No')
+    OR coalesce(payload->>'reason','') NOT IN ('Dificultad respiratoria','Exceso de secreciones','Uso de oxígeno','Asma','EPOC','Neumonía','Postoperatorio','Traqueostomía','Ventilación mecánica','Otro')
+    OR coalesce(payload->'symptoms','[]'::jsonb) ? 'Dolor torácico'
+    OR coalesce(payload->>'consent','')<>'true'
+    OR length(trim(coalesce(payload->>'patient',''))) NOT BETWEEN 1 AND 100
+    OR coalesce(payload->>'phone','') !~ '^\+[1-9][0-9]{7,14}$'
+    OR length(trim(coalesce(payload->>'address',''))) NOT BETWEEN 1 AND 200
+    OR length(trim(coalesce(payload->>'municipality',''))) NOT BETWEEN 1 AND 100
+    OR length(trim(coalesce(payload->>'department',''))) NOT BETWEEN 1 AND 100
+    OR length(coalesce(payload->>'reference',''))>200
+    OR coalesce(payload->>'payment','') NOT IN ('Efectivo','Pago contra entrega','Tarjeta de crédito','Tarjeta de débito','Transferencia bancaria','Pago empresarial')
+    THEN RAISE EXCEPTION 'Incomplete or unsafe request' USING ERRCODE='22023'; END IF;
+  born := nullif(payload->>'birthDate','')::date;
+  preferred := nullif(payload->>'slot','')::timestamptz;
+  IF born IS NULL OR born>current_date OR born<current_date-interval '120 years'
+    OR preferred IS NULL OR preferred<=now() OR preferred>now()+interval '180 days' THEN
+    RAISE EXCEPTION 'Invalid dates' USING ERRCODE='22023'; END IF;
+  symptom_answer := jsonb_build_object('state',CASE WHEN coalesce((payload->>'noSymptoms')::boolean,false) THEN 'none' ELSE 'selected' END,'items',payload->'symptoms');
+  history_answer := jsonb_build_object('state',CASE WHEN coalesce((payload->>'noHistory')::boolean,false) THEN 'none' ELSE 'selected' END,'items',payload->'history');
+  IF NOT private.valid_answer(symptom_answer) OR NOT private.valid_answer(history_answer) THEN RAISE EXCEPTION 'Incomplete answers' USING ERRCODE='22023'; END IF;
+  SELECT * INTO offer FROM public.get_service_offers() WHERE code=payload->>'serviceId';
+  IF NOT FOUND THEN RAISE EXCEPTION 'Service unavailable' USING ERRCODE='22023'; END IF;
+  service := offer.id;
+  UPDATE public.patients SET full_name=trim(payload->>'patient'), phone=payload->>'phone', birth_date=born WHERE id=patient;
+  INSERT INTO public.addresses(patient_id,department_code,municipality_code,address_line,reference_notes)
+    VALUES(patient,payload->>'department',payload->>'municipality',payload->>'address',payload->>'reference') RETURNING id INTO address;
+  INSERT INTO public.service_requests(patient_id,requested_by,requested_service_id,address_id,payment_preference,preferred_at,submission_key)
+    VALUES(patient,actor,service,address,payload->>'payment',preferred,retry_key) RETURNING id INTO request;
+  INSERT INTO public.consents(patient_id,granted_by,purpose,policy_version,evidence_ref)
+    VALUES(patient,actor,'service_request','patient-request-v1',request::text);
+  INSERT INTO public.clinical_intakes(request_id,revision,reason,prescription_declared,symptoms,history,questionnaire_version,completed_at)
+    VALUES(request,1,payload->>'reason',payload->>'prescription'='Sí',symptom_answer,history_answer,'intake-v1',now());
+  IF payload->>'prescription'='Sí' THEN
+    IF coalesce(payload->'file'->>'mime','') NOT IN ('application/pdf','image/jpeg','image/png')
+      OR coalesce((payload->'file'->>'size')::bigint,0) NOT BETWEEN 1 AND 5242880
+      OR coalesce(payload->'file'->>'hash','') !~ '^[a-f0-9]{64}$' THEN
+      RAISE EXCEPTION 'Invalid prescription' USING ERRCODE='22023'; END IF;
+    path := actor::text || '/' || gen_random_uuid()::text || CASE payload->'file'->>'mime' WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' ELSE '.pdf' END;
+    INSERT INTO public.documents(owner_profile_id,patient_id,category,bucket_id,object_path,mime_type,size_bytes,checksum_sha256,uploaded_at)
+      VALUES(actor,patient,'prescription','prescriptions',path,payload->'file'->>'mime',(payload->'file'->>'size')::bigint,payload->'file'->>'hash',now()) RETURNING id INTO doc;
+    INSERT INTO public.prescriptions(request_id,patient_id,document_id) VALUES(request,patient,doc);
+  END IF;
+  UPDATE public.service_requests SET submission_details=jsonb_build_object('input',payload,'serviceName',offer.name,'serviceCode',offer.code,
+    'serviceCents',offer.amount_cents,'serviceScope',offer.scope,'prescriptionPath',path) WHERE id=request;
+  RETURN jsonb_build_object('id',request,'path',path,'submitted',false);
+END;
+$$;
+
+CREATE FUNCTION public.finish_patient_request(target uuid) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE r public.service_requests;
+BEGIN
+  SELECT * INTO r FROM public.service_requests WHERE id=target FOR UPDATE;
+  IF NOT FOUND OR r.requested_by IS DISTINCT FROM private.current_profile() THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  IF r.status<>'draft' THEN RETURN r.id; END IF;
+  IF r.submission_details IS NULL THEN RAISE EXCEPTION 'Invalid submission' USING ERRCODE='22023'; END IF;
+  IF r.submission_details->>'prescriptionPath' IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM storage.objects WHERE bucket_id='prescriptions' AND name=r.submission_details->>'prescriptionPath'
+  ) THEN RAISE EXCEPTION 'Prescription upload required' USING ERRCODE='23514'; END IF;
+  PERFORM public.submit_request(target);
+  RETURN target;
+END;
+$$;
+GRANT USAGE ON SCHEMA storage TO pulmocare_executor;
+GRANT SELECT ON storage.objects TO pulmocare_executor;
+CREATE POLICY executor_prescription_objects ON storage.objects FOR SELECT TO pulmocare_executor USING(bucket_id='prescriptions');
+
+CREATE FUNCTION public.list_portal_requests(page_number integer DEFAULT 0) RETURNS TABLE(id uuid,patient_id uuid,patient_name text,service_name text,status text,preferred_at timestamptz,submitted_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  IF private.current_profile() IS NULL THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  RETURN QUERY SELECT r.id,r.patient_id,p.full_name,coalesce(r.submission_details->>'serviceName',s.name),r.status,r.preferred_at,r.submitted_at
+    FROM public.service_requests r JOIN public.patients p ON p.id=r.patient_id LEFT JOIN public.services s ON s.id=r.requested_service_id
+    WHERE r.status<>'draft' AND (private.has_role('operations_admin') OR private.owns_patient(r.patient_id,'request_service'))
+    ORDER BY r.submitted_at DESC,r.id DESC LIMIT 50 OFFSET greatest(0,least(coalesce(page_number,0),10000))*50;
+END;
+$$;
+
+CREATE FUNCTION public.read_patient_submission(target uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE r public.service_requests; result jsonb;
+BEGIN
+  SELECT * INTO r FROM public.service_requests WHERE id=target;
+  IF NOT FOUND OR NOT (private.has_role('operations_admin') OR private.owns_patient(r.patient_id,'request_service')
+    OR private.assigned(target,'review') OR private.assigned(target,'treatment')) THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  SELECT jsonb_build_object('id',r.id,'status',r.status,'submittedAt',r.submitted_at,'preferredAt',r.preferred_at,'patientId',r.patient_id,
+    'patientName',p.full_name,'phone',p.phone,'birthDate',p.birth_date,'details',r.submission_details - 'prescriptionPath',
+    'prescriptionId',(SELECT pr.document_id FROM public.prescriptions pr WHERE pr.request_id=target LIMIT 1)) INTO result
+    FROM public.patients p WHERE p.id=r.patient_id;
+  PERFORM private.log_event('patient_submission_read','service_requests',target);
+  RETURN result;
+END;
+$$;
+
+CREATE FUNCTION private.can_read_submission_file(object_name text) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT EXISTS(SELECT 1 FROM public.documents d JOIN public.prescriptions p ON p.document_id=d.id
+    WHERE d.bucket_id='prescriptions' AND d.object_path=object_name AND d.scan_status<>'rejected'
+    AND (private.has_role('operations_admin') OR private.owns_patient(p.patient_id,'request_service')
+      OR private.assigned(p.request_id,'review') OR private.assigned(p.request_id,'treatment')));
+$$;
+CREATE FUNCTION public.get_submission_file(target uuid) RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE path text;
+BEGIN
+  SELECT object_path INTO path FROM public.documents WHERE id=target AND category='prescription';
+  IF path IS NULL OR NOT private.can_read_submission_file(path) THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  PERFORM private.log_event('patient_prescription_read','documents',target);
+  RETURN path;
+END;
+$$;
+CREATE POLICY patient_submission_download ON storage.objects FOR SELECT TO authenticated
+  USING(bucket_id='prescriptions' AND private.can_read_submission_file(name));
+
+CREATE FUNCTION public.read_provider_profile(target uuid DEFAULT NULL) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE result jsonb;
+BEGIN
+  IF private.current_profile() IS NULL OR (target IS NOT NULL AND NOT private.has_role('access_admin')) THEN RAISE EXCEPTION 'Unauthorized' USING ERRCODE='42501'; END IF;
+  SELECT jsonb_build_object('id',p.id,'name',p.display_name,'specialty',p.specialty,'registration',p.registration_ref,
+    'status',p.verification_status,'active',p.active,'createdAt',p.created_at,
+    'assignments',coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'status',r.status,'purpose',a.purpose))
+      FROM public.request_assignments a JOIN public.service_requests r ON r.id=a.request_id
+      WHERE a.professional_id=p.id AND a.revoked_at IS NULL),'[]'::jsonb)) INTO result
+    FROM public.professionals p WHERE (target IS NOT NULL AND p.id=target) OR (target IS NULL AND p.profile_id=private.current_profile());
+  IF result IS NULL THEN RAISE EXCEPTION 'Not found' USING ERRCODE='22023'; END IF;
+  PERFORM private.log_event('provider_profile_read','professionals',(result->>'id')::uuid);
+  RETURN result;
+END;
+$$;
+
+ALTER FUNCTION public.prepare_patient_request(jsonb,uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.finish_patient_request(uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.list_portal_requests(integer) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.read_patient_submission(uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION private.can_read_submission_file(text) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.get_submission_file(uuid) OWNER TO pulmocare_executor;
+ALTER FUNCTION public.read_provider_profile(uuid) OWNER TO pulmocare_executor;
+REVOKE ALL ON FUNCTION public.prepare_patient_request(jsonb,uuid),public.finish_patient_request(uuid),public.list_portal_requests(integer),
+  public.read_patient_submission(uuid),private.can_read_submission_file(text),public.get_submission_file(uuid),public.read_provider_profile(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.prepare_patient_request(jsonb,uuid),public.finish_patient_request(uuid),public.list_portal_requests(integer),
+  public.read_patient_submission(uuid),private.can_read_submission_file(text),public.get_submission_file(uuid),public.read_provider_profile(uuid) TO authenticated;
+REVOKE CREATE ON SCHEMA public,private FROM pulmocare_executor;
+REVOKE pulmocare_executor FROM postgres;
+NOTIFY pgrst,'reload schema';
+$migration_source$]);
+
 COMMIT;
 SELECT 'Pulmocare database installed' AS result,
   (SELECT count(*) FROM pg_tables WHERE schemaname='public' AND rowsecurity) AS protected_tables;

@@ -2552,6 +2552,7 @@ export type Database = {
           approved_by: string | null;
           approved_at: string | null;
           status: string;
+          scope: string;
         };
         Insert: {
           id?: string;
@@ -2567,6 +2568,7 @@ export type Database = {
           approved_by?: string | null;
           approved_at?: string | null;
           status?: string;
+          scope?: string;
         };
         Update: {
           id?: string;
@@ -2582,6 +2584,7 @@ export type Database = {
           approved_by?: string | null;
           approved_at?: string | null;
           status?: string;
+          scope?: string;
         };
         Relationships: [
           {
@@ -2625,6 +2628,8 @@ export type Database = {
           submitted_at: string | null;
           payment_preference: string | null;
           preferred_at: string | null;
+          submission_key: string | null;
+          submission_details: Json | null;
         };
         Insert: {
           id?: string;
@@ -2640,6 +2645,8 @@ export type Database = {
           submitted_at?: string | null;
           payment_preference?: string | null;
           preferred_at?: string | null;
+          submission_key?: string | null;
+          submission_details?: Json | null;
         };
         Update: {
           id?: string;
@@ -2655,6 +2662,8 @@ export type Database = {
           submitted_at?: string | null;
           payment_preference?: string | null;
           preferred_at?: string | null;
+          submission_key?: string | null;
+          submission_details?: Json | null;
         };
         Relationships: [
           {
@@ -2760,8 +2769,9 @@ export type Database = {
           code: string;
           name: string;
           description: string;
-          duration_minutes: number;
+          duration_minutes: number | null;
           active: boolean;
+          billing_unit: string;
         };
         Insert: {
           id?: string;
@@ -2772,8 +2782,9 @@ export type Database = {
           code: string;
           name: string;
           description: string;
-          duration_minutes: number;
+          duration_minutes?: number | null;
           active?: boolean;
+          billing_unit?: string;
         };
         Update: {
           id?: string;
@@ -2784,8 +2795,9 @@ export type Database = {
           code?: string;
           name?: string;
           description?: string;
-          duration_minutes?: number;
+          duration_minutes?: number | null;
           active?: boolean;
+          billing_unit?: string;
         };
         Relationships: [
           {
@@ -3105,8 +3117,34 @@ export type Database = {
         };
         Returns: undefined;
       };
+      finish_patient_request: {
+        Args: {
+          target: string;
+        };
+        Returns: string;
+      };
       get_my_access: { Args: {}; Returns: Json };
+      get_nebulization_discount: { Args: {}; Returns: { percent: number; revision: string }[] };
       get_provider_photo: {
+        Args: {
+          target: string;
+        };
+        Returns: string;
+      };
+      get_service_offers: {
+        Args: {};
+        Returns: {
+          id: string;
+          code: string;
+          name: string;
+          description: string;
+          duration_minutes: number;
+          billing_unit: string;
+          amount_cents: number;
+          scope: string;
+        }[];
+      };
+      get_submission_file: {
         Args: {
           target: string;
         };
@@ -3141,6 +3179,20 @@ export type Database = {
           created_at: string;
         }[];
       };
+      list_portal_requests: {
+        Args: {
+          page_number?: number;
+        };
+        Returns: {
+          id: string;
+          patient_id: string;
+          patient_name: string;
+          service_name: string;
+          status: string;
+          preferred_at: string;
+          submitted_at: string;
+        }[];
+      };
       list_provider_photos: {
         Args: {
           target?: string;
@@ -3157,11 +3209,39 @@ export type Database = {
           verification_status: string;
         }[];
       };
+      list_service_prices: {
+        Args: {};
+        Returns: {
+          service_id: string;
+          code: string;
+          name: string;
+          billing_unit: string;
+          amount_cents: number;
+          price_id: string;
+          scope: string;
+        }[];
+      };
       offer_quote: {
         Args: {
           quote: string;
         };
         Returns: undefined;
+      };
+      prepare_patient_request: {
+        Args: {
+          payload: Json;
+          retry_key: string;
+        };
+        Returns: Json;
+      };
+      publish_service_price: {
+        Args: {
+          target: string;
+          amount: number;
+          expected?: string;
+          price_scope?: string;
+        };
+        Returns: string;
       };
       read_clinical_release: {
         Args: {
@@ -3173,6 +3253,18 @@ export type Database = {
         Args: {
           request: string;
           purpose: string;
+        };
+        Returns: Json;
+      };
+      read_patient_submission: {
+        Args: {
+          target: string;
+        };
+        Returns: Json;
+      };
+      read_provider_profile: {
+        Args: {
+          target?: string;
         };
         Returns: Json;
       };
@@ -3231,6 +3323,13 @@ export type Database = {
         Args: {
           object_type: string;
           object_id: string;
+        };
+        Returns: undefined;
+      };
+      set_nebulization_discount: {
+        Args: {
+          discount: number;
+          expected: string;
         };
         Returns: undefined;
       };

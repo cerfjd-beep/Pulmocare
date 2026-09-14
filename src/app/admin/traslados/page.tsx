@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requirePortal } from "@/modules/auth/server";
 import { redirect } from "next/navigation";
 import { TravelCalculator } from "@/modules/travel/calculator";
+import { displayServices, getSupabaseCatalog } from "@/integrations/supabase/catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,10 @@ export default async function AdminTravelPage() {
           Volver a administración
         </Link>
       </div>
-      <TravelCalculator liveEnabled={liveEnabled} />
+      <TravelCalculator
+        liveEnabled={liveEnabled}
+        services={displayServices(await getSupabaseCatalog())}
+      />
     </div>
   );
 }

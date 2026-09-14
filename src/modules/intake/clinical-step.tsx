@@ -4,7 +4,15 @@ import { history, reasons, symptoms, type IntakeData } from "./model";
 
 export type UpdateIntake = <K extends keyof IntakeData>(key: K, value: IntakeData[K]) => void;
 
-export function ClinicalStep({ data, update }: { data: IntakeData; update: UpdateIntake }) {
+export function ClinicalStep({
+  data,
+  update,
+  onFile,
+}: {
+  data: IntakeData;
+  update: UpdateIntake;
+  onFile?: (file: File | null) => void;
+}) {
   function options(key: "symptoms" | "history", values: string[]) {
     const noneKey = key === "symptoms" ? "noSymptoms" : "noHistory";
     return (
@@ -46,7 +54,7 @@ export function ClinicalStep({ data, update }: { data: IntakeData; update: Updat
       <div>
         <p className="eyebrow">PRIMERO, TU BIENESTAR</p>
         <h2>Cuéntanos qué necesitas</h2>
-        <p>Esta demostración organiza una solicitud; no realiza diagnósticos.</p>
+        <p>El equipo revisará tus respuestas antes de coordinar la atención.</p>
       </div>
       <fieldset>
         <legend>¿Presentas dificultad respiratoria intensa o dolor en el pecho?</legend>
@@ -88,6 +96,7 @@ export function ClinicalStep({ data, update }: { data: IntakeData; update: Updat
                 onChange={() => {
                   update("prescription", value);
                   update("fileName", "");
+                  onFile?.(null);
                   update("symptoms", []);
                   update("history", []);
                   update("noSymptoms", false);
@@ -101,8 +110,8 @@ export function ClinicalStep({ data, update }: { data: IntakeData; update: Updat
       </fieldset>
       {data.prescription === "Sí" && (
         <label className="upload-zone">
-          Adjunta una receta ficticia
-          <small>JPG, PNG o PDF · Máximo 5 MB · El archivo no se envía ni se almacena.</small>
+          Adjunta tu receta
+          <small>JPG, PNG o PDF · Máximo 5 MB · Acceso privado para revisar tu solicitud.</small>
           <input
             type="file"
             accept="image/jpeg,image/png,application/pdf"
@@ -117,12 +126,13 @@ export function ClinicalStep({ data, update }: { data: IntakeData; update: Updat
               );
               event.target.reportValidity();
               update("fileName", valid ? file.name : "");
+              onFile?.(valid ? file : null);
             }}
           />
           {data.fileName && <span>Seleccionada: {data.fileName}</span>}
         </label>
       )}
-      {data.prescription === "No" && (
+      {
         <>
           <fieldset>
             <legend>Síntomas actuales</legend>
@@ -132,11 +142,13 @@ export function ClinicalStep({ data, update }: { data: IntakeData; update: Updat
             <legend>Antecedentes</legend>
             {options("history", history)}
           </fieldset>
-          <div className="notice amber">
-            Sin receta, la solicitud pasa a valoración médica previa.
-          </div>
+          {data.prescription === "No" && (
+            <div className="notice amber">
+              Sin receta, la solicitud pasa a valoración médica previa.
+            </div>
+          )}
         </>
-      )}
+      }
       {["Traqueostomía", "Ventilación mecánica"].includes(data.reason) && (
         <div className="notice amber">
           Este motivo requiere revisión especializada antes de coordinar la visita.

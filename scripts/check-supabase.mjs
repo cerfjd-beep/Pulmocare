@@ -45,6 +45,22 @@ if (!report.configured) {
   }
   for (const [name, args] of [
     ["get_my_access", {}],
+    ["list_my_assignments", {}],
+    ["list_provider_registrations", {}],
+    ["list_operations_requests", { page_size: 1 }],
+    ["list_provider_photos", {}],
+    ["get_provider_photo", { target: "00000000-0000-0000-0000-000000000000" }],
+    ["review_provider", { target: "00000000-0000-0000-0000-000000000000", approve: false }],
+    [
+      "reserve_provider_photo",
+      { photo_kind: "degree", photo_mime: "image/png", photo_size: 1, photo_hash: "0".repeat(64) },
+    ],
+    ["list_service_prices", {}],
+    ["publish_service_price", { target: "00000000-0000-0000-0000-000000000000", amount: 0 }],
+    [
+      "set_nebulization_discount",
+      { discount: 0, expected: "00000000-0000-0000-0000-000000000000" },
+    ],
     ["register_patient", { display_name: "diagnostic" }],
     [
       "register_provider",
@@ -66,6 +82,32 @@ if (!report.configured) {
         installedAndProtected: response.status === 401 && payload?.code === "42501",
       };
       if (!report[name].installedAndProtected) process.exitCode = 1;
+    } catch {
+      report[name] = { error: "Network request failed" };
+      process.exitCode = 1;
+    }
+  }
+  for (const name of ["get_service_offers", "get_nebulization_discount"]) {
+    try {
+      const response = await fetch(new URL(`/rest/v1/rpc/${name}`, url), {
+        method: "POST",
+        headers: { apikey: key, "Content-Type": "application/json" },
+        body: "{}",
+        signal: AbortSignal.timeout(15000),
+      });
+      const payload = await response.json().catch(() => null);
+      report[name] = {
+        status: response.status,
+        code: payload?.code,
+        rows: Array.isArray(payload) ? payload.length : undefined,
+      };
+      const complete =
+        Array.isArray(payload) &&
+        (name === "get_nebulization_discount"
+          ? payload.length === 1
+          : payload.some((item) => item.code === "nebulization-7-days"));
+      report[name].complete = complete;
+      if (!response.ok || !complete) process.exitCode = 1;
     } catch {
       report[name] = { error: "Network request failed" };
       process.exitCode = 1;

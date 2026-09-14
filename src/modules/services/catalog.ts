@@ -1,4 +1,28 @@
 import { distanceCharge } from "../travel/pricing.ts";
+export type ServiceOption = {
+  id: string;
+  name: string;
+  description: string;
+  cents: number | null;
+  minutes: number | null;
+};
+export const rehabilitationStages = [
+  {
+    name: "1. Evaluación y plan",
+    description:
+      "El profesional evalúa la situación inicial, acuerda objetivos y define el plan individual.",
+  },
+  {
+    name: "2. Intervención y reevaluación",
+    description:
+      "La respuesta del paciente determina los ajustes y si corresponde continuar, repetir una etapa, pausar o dar el alta.",
+  },
+  {
+    name: "3. Consolidación y mantenimiento",
+    description:
+      "Se acuerda el cierre o el seguimiento cuando corresponda. No se contratan etapas futuras automáticamente.",
+  },
+] as const;
 
 export const servicePackages = [
   {
@@ -15,13 +39,13 @@ export const servicePackages = [
   {
     id: "rehab-complete",
     baseService: "rehab",
-    name: "Rehabilitación pulmonar · paquete completo",
+    name: "Rehabilitación pulmonar · programa por etapas",
     cents: null,
     minutes: null,
     sessions: null,
     icon: "rehab",
     description:
-      "Solicita el programa completo. Cantidad de sesiones, frecuencia, duración y precio por confirmar tras la valoración profesional.",
+      "Programa individualizado por etapas, sin un número fijo de sesiones. Cada etapa se cotiza y acepta por separado; la continuidad depende de la reevaluación profesional.",
   },
 ] as const;
 
@@ -91,11 +115,12 @@ export function money(cents: number | null) {
   return new Intl.NumberFormat("es-SV", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
-export function quote(serviceCents: number | null, kilometers: number) {
+export function quote(serviceCents: number | null, kilometers: number, visits: number | null = 1) {
   if (!Number.isFinite(kilometers) || kilometers < 0 || kilometers > 25) {
     throw new Error("La cobertura de demostración es de 0 a 25 km.");
   }
   if (serviceCents === null) return { service: null, travel: null, total: null };
+  if (visits === null) return { service: serviceCents, travel: null, total: null };
   const travel = distanceCharge(kilometers * 1000);
   return { service: serviceCents, travel, total: serviceCents + travel };
 }

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, ShieldCheck } from "lucide-react";
 import { useDemo } from "@/modules/demo/provider";
-import { services, quote, money } from "@/modules/services/catalog";
+import { quote, money, type ServiceOption } from "@/modules/services/catalog";
 import { ClinicalStep, type UpdateIntake } from "./clinical-step";
 import { LocationStep } from "./location-step";
 import { ScheduleStep } from "./schedule-step";
@@ -12,10 +12,18 @@ import { hasAlarm, initialIntake, needsPriorReview, validateStep } from "./model
 
 const steps = ["Tu necesidad", "Ubicación", "Servicio y horario", "Resumen"];
 
-export function IntakeWizard({ serviceId }: { serviceId?: string }) {
+export function IntakeWizard({
+  serviceId,
+  services,
+}: {
+  serviceId?: string;
+  services: ServiceOption[];
+}) {
   const [data, setData] = useState({
     ...initialIntake,
-    serviceId: services.some((x) => x.id === serviceId) ? serviceId! : "evaluation",
+    serviceId: services.some((x) => x.id === serviceId)
+      ? serviceId!
+      : (services[0]?.id ?? "evaluation"),
   });
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
@@ -61,7 +69,7 @@ export function IntakeWizard({ serviceId }: { serviceId?: string }) {
         .join(" · "),
       slot: data.slot,
       payment: data.payment,
-      total: quote(selected.cents, data.kilometers).total,
+      total: quote(selected.cents, data.kilometers, selected.minutes === null ? null : 1).total,
       status: needsPriorReview(data) ? "Valoración médica previa" : "Pendiente de revisión",
     });
     setCreated(id);
@@ -130,7 +138,7 @@ export function IntakeWizard({ serviceId }: { serviceId?: string }) {
       <section className="form-card" aria-label={steps[step]}>
         {step === 0 && <ClinicalStep data={data} update={update} />}
         {step === 1 && <LocationStep data={data} update={update} />}
-        {step === 2 && <ScheduleStep data={data} update={update} />}
+        {step === 2 && <ScheduleStep data={data} update={update} services={services} />}
         {step === 3 && (
           <div className="stack">
             <div>
@@ -148,7 +156,14 @@ export function IntakeWizard({ serviceId }: { serviceId?: string }) {
                 ["Detalle del servicio", selected.description],
                 ["Horario de preferencia", data.slot],
                 ["Método de preferencia", data.payment],
-                ["Total estimado", money(quote(selected.cents, data.kilometers).total)],
+                ["Precio del servicio o etapa", money(selected.cents)],
+                [
+                  "Total con traslados",
+                  money(
+                    quote(selected.cents, data.kilometers, selected.minutes === null ? null : 1)
+                      .total,
+                  ),
+                ],
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt>{label}</dt>

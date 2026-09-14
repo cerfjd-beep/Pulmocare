@@ -16,7 +16,7 @@ export function QuoteResult({
   serviceCents,
 }: {
   estimate: TravelEstimate;
-  serviceCents: number;
+  serviceCents: number | null;
 }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -66,7 +66,9 @@ export function QuoteResult({
         </div>
         <div className="price-total">
           <span>Total estimado</span>
-          <strong>{money(serviceCents + estimate.travelCents)}</strong>
+          <strong>
+            {money(serviceCents === null ? null : serviceCents + estimate.travelCents)}
+          </strong>
         </div>
       </div>
       <p className={expired ? "notice amber" : "notice"}>

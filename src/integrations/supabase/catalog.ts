@@ -1,13 +1,18 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseConfig } from "./config";
 import type { Database } from "./database.types";
+import {
+  services as demoServices,
+  servicePackages,
+  type ServiceOption,
+} from "@/modules/services/catalog";
 
 export interface CatalogService {
   id: string;
   code: string;
   name: string;
   description: string;
-  durationMinutes: number;
+  durationMinutes: number | null;
   amountCents: number | null;
 }
 
@@ -35,6 +40,20 @@ export async function getSupabaseCatalog(): Promise<CatalogResult> {
         }),
     },
   });
+  const offers = await client.rpc("get_service_offers");
+  if (!offers.error)
+    return {
+      status: "ready",
+      services: (offers.data ?? []).map((s) => ({
+        id: s.id,
+        code: s.code,
+        name: s.name,
+        description: [s.description, s.scope].filter(Boolean).join(" "),
+        durationMinutes: s.duration_minutes,
+        amountCents: s.amount_cents,
+      })),
+    };
+  if (!["PGRST202", "42883"].includes(offers.error.code)) return { status: "unavailable" };
   const [services, prices] = await Promise.all([
     client
       .from("services")
@@ -64,4 +83,22 @@ export async function getSupabaseCatalog(): Promise<CatalogResult> {
           ?.amount_cents ?? null,
     })),
   };
+}
+
+export function displayServices(catalog: CatalogResult): ServiceOption[] {
+  if (catalog.status === "not_configured") return [...demoServices];
+  if (catalog.status !== "ready") return [];
+  const items: ServiceOption[] = catalog.services.map((s) => ({
+    id: s.code,
+    name: ["nebulization", "rehab"].includes(s.code) ? `${s.name} · sesión individual` : s.name,
+    description: s.description,
+    minutes: s.durationMinutes,
+    cents: s.amountCents,
+  }));
+  return [
+    ...items,
+    ...servicePackages.filter(
+      (p) => !items.some((s) => s.id === p.id) && items.some((s) => s.id === p.baseService),
+    ),
+  ];
 }

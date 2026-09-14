@@ -85,6 +85,11 @@ export function AuthForm({ signup = false, state = {} }: { signup?: boolean; sta
       <a href={signup ? "/ingresar" : "/ingresar?mode=signup"} className="text-button">
         {signup ? "Ya tengo cuenta: iniciar sesión" : "No tengo cuenta: registrarme"}
       </a>
+      {!signup && (
+        <a href="/recuperar" className="text-button">
+          Olvidé mi contraseña
+        </a>
+      )}
       {signup && (
         <small>
           Después de confirmar tu correo podrás completar tu perfil. El acceso administrativo
