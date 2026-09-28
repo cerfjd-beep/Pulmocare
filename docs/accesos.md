@@ -91,7 +91,12 @@ eliminadas después de probar; se rechazaron solicitudes anónimas, de otro orig
 contraseñas no coincidentes y enlaces inválidos. El envío y apertura del correo
 siguen pendientes de verificar con la configuración de redirección corregida.
 
-Los paneles muestran registros reales o estados vacíos. El formulario `/solicitar` sigue siendo una demostración: no crea solicitudes clínicas reales. La interfaz de facturación y la captura de encuentros clínicos no forman parte de esta implementación de acceso.
+Los paneles muestran registros reales o estados vacíos. El formulario `/solicitar` crea solicitudes
+para pacientes con perfil activo y las muestra en la bandeja administrativa. En una base que ya
+tenga las migraciones 1–30, ejecutar una sola vez `supabase/install/11-solicitudes-pacientes.sql`
+como `postgres` y esperar la recarga del esquema de la API; sin esas funciones instaladas, el
+envío se rechaza. La interfaz de facturación y la captura de encuentros clínicos no forman parte
+de esta implementación de acceso.
 
 Comprobar en producción con cuentas de prueba: registro y confirmación por correo, acceso como paciente, prestador pendiente, aprobación desde un administrador, suspensión, intento de abrir `/admin` como paciente y cierre de sesión. La prueba local PostgreSQL simula los contratos de Auth/Storage; no sustituye la prueba de envío de correo ni de cookies en el dominio de Vercel.
 

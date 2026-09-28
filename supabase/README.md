@@ -7,15 +7,15 @@ roles, permisos por fila (RLS) y funciones autorizadas. El esquema no cambia el 
 ## Estado
 
 - 43 tablas de aplicación, más la configuración comercial privada.
-- 26 migraciones ordenadas; seis servicios y tarifas provisionales en `draft`.
+- 31 migraciones ordenadas; seis servicios y tarifas provisionales en `draft`.
 - Cuatro buckets privados: recetas, acreditaciones, adjuntos clínicos y soporte financiero.
 - Operaciones transaccionales para identidad/roles, solicitudes, revisión, ofertas y aceptación,
   retenciones y confirmación, firma/seguimiento, pagos/devoluciones y trabajos pendientes.
 - No hay pacientes reales, roles administrativos automáticos ni protocolos clínicos aprobados.
 - El catálogo de inicio y `/api/catalog` consultan Supabase cuando se configuran las variables
   públicas. Los precios borrador se muestran como «Precio por confirmar».
-- El acceso con correo y contraseña y los tres paneles consultan Supabase. El formulario
-  de solicitud sigue siendo una demostración. Ver [activación de perfiles](../docs/accesos.md).
+- El acceso con correo y contraseña y los tres paneles consultan Supabase. El formulario de
+  solicitudes de pacientes crea registros para revisión administrativa. Ver [activación de perfiles](../docs/accesos.md).
 
 **Catálogo remoto conectado y función de acceso detectada.** El proyecto indicado es `dnxwecpzjobtnclyywkz`.
 Las claves de la aplicación de `.env.local` no conceden administración SQL. En esta sesión
@@ -63,13 +63,19 @@ valores de variables. No ejecuta SQL de administración ni consulta expedientes.
    El archivo ejecuta las migraciones en una transacción e incluye el historial compatible
    con Supabase CLI. Un error revierte toda la instalación. No elimina tablas ni datos.
 4. Ejecutar `install/03-verificar-instalacion.sql`. En una base nueva se esperan 43 tablas
-   protegidas, 26 migraciones, cuatro buckets privados, seis precios `draft`, una tarifa
+   protegidas, 31 migraciones, cuatro buckets privados, seis precios `draft`, una tarifa
    `draft` y cero administradores asignados. Las últimas dos consultas deben devolver cero filas.
 5. Conservar el resultado de esta verificación para registrar la instalación remota.
 
 El instalador inicial se detiene si detecta una instalación anterior; no usarlo para actualizar
 una base ya instalada. Las siguientes versiones se aplican con nuevas migraciones y comparación
 de historial, nunca con un reset remoto. El archivo generado es reproducible:
+
+Para una base existente que ya tiene las migraciones 1–30, ejecutar una sola vez
+`install/11-solicitudes-pacientes.sql` en SQL Editor como `postgres`. Esta migración habilita el
+envío transaccional de solicitudes, la bandeja de revisión y el acceso privado a recetas. Esperar
+la recarga del esquema de la API después de ejecutarla. No volver a ejecutar esta migración cuando
+`20260913000031` ya figure en `supabase_migrations.schema_migrations`.
 
 ```powershell
 npm.cmd run db:bundle

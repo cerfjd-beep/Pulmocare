@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     if (prepared.error)
       return fail(
         prepared.error.code === "PGRST202"
-          ? "Estamos activando las solicitudes. Intenta nuevamente en unos minutos."
+          ? "El envío de solicitudes aún no está habilitado. El equipo debe actualizar el sistema antes de que puedas enviarla."
           : "No se pudo guardar. Revisa tus datos y que tu perfil de paciente esté activo.",
         409,
       );

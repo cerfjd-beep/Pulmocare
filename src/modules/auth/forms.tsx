@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { onboard, reviewProvider, type FormState } from "./actions";
 function Feedback({ state }: { state: FormState }) {
   return (
@@ -16,6 +17,7 @@ function Feedback({ state }: { state: FormState }) {
 export function AuthForm({ signup = false, state = {} }: { signup?: boolean; state?: FormState }) {
   const [validationError, setValidationError] = useState("");
   const [pending, setPending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   return (
     <form
       action="/auth/session"
@@ -47,15 +49,27 @@ export function AuthForm({ signup = false, state = {} }: { signup?: boolean; sta
       </label>
       <label>
         Contraseña
-        <input
-          type="password"
-          name="password"
-          autoComplete={signup ? "new-password" : "current-password"}
-          required
-          minLength={signup ? 10 : 1}
-          maxLength={128}
-          aria-describedby={signup ? "password-requirements" : undefined}
-        />
+        <span className="password-field">
+          <input
+            type={showPassword ? "text" : "password"}
+            name="password"
+            autoComplete={signup ? "new-password" : "current-password"}
+            required
+            minLength={signup ? 10 : 1}
+            maxLength={128}
+            aria-describedby={signup ? "password-requirements" : undefined}
+          />
+          <button
+            type="button"
+            className="password-toggle"
+            aria-label={showPassword ? "Ocultar clave" : "Ver clave"}
+            aria-pressed={showPassword}
+            onClick={() => setShowPassword((visible) => !visible)}
+          >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            {showPassword ? "Ocultar" : "Ver"}
+          </button>
+        </span>
       </label>
       {signup && (
         <small id="password-requirements">

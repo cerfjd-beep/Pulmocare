@@ -34,7 +34,7 @@ El formulario requiere una cuenta de paciente; los paneles autenticados muestran
 No introducir datos de pacientes reales.
 
 El catálogo de inicio puede leerse desde Supabase con las variables públicas de `.env.example`.
-El formulario de solicitud sigue en modo demostración. Ver
+El envío de solicitudes requiere la migración 31 de Supabase en la base de datos. Ver
 [conexión e instalación de Supabase](supabase/README.md) para crear las tablas y configurar Vercel.
 
 ## Validación
